@@ -20,6 +20,7 @@ import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.deeplink.handleAppUrl
 import com.nuvio.app.core.diagnostics.SentryInitializer
+import com.nuvio.app.core.mtls.MtlsRegistration
 import com.nuvio.app.core.overlay.OverlayEnrollmentController
 import com.nuvio.app.core.overlay.OverlayRelay
 import com.nuvio.app.core.overlay.OverlaySession
@@ -74,6 +75,10 @@ fun main(args: Array<String>) {
     // Binds the loopback CONNECT relay. Inert until an overlay address exists, and re-checked
     // when enrollment learns one.
     OverlayRelay.initialize()
+    // Watches enrollment for an assignment and registers this device's certificate with the edge.
+    // Inert until one lands: the certificate's CN *is* the assigned device name, so there is
+    // nothing to mint for before then.
+    MtlsRegistration.initialize()
 
     // On Linux, initialize GTK BEFORE AWT/Compose/Skia to prevent GdkDisplayManager
     // type registration conflict (Skiko partially loads GDK without full GTK init).

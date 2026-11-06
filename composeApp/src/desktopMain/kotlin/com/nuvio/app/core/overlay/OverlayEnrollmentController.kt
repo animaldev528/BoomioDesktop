@@ -1,5 +1,6 @@
 package com.nuvio.app.core.overlay
 
+import com.nuvio.app.core.mtls.MtlsRegistration
 import com.nuvio.app.core.storage.DesktopStorage
 import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.app.features.boomio.BoomioSessionRepository
@@ -25,10 +26,11 @@ import kotlinx.coroutines.launch
  *   - applying an assignment writes [BoomioConfig], which is what the tunnel ladder and the
  *     DNS seam read live.
  *
- * ⚠️ **The hooks, and the order they fire in.** Mobile's `writeConfig` also wakes
- * `OverlaySession` and `OverlayRelay`; both are called below. The mTLS registration hook is
- * omitted rather than stubbed — it lands with `MtlsRegistrar`, and a no-op in its place would
- * make "the assignment took effect" true for the address and silently false for the certificate.
+ * ⚠️ **The hooks, and why they are told rather than polled.** Mobile's `writeConfig` also
+ * wakes `OverlaySession`, `OverlayRelay` and `MtlsRegistration`, and all three are called below.
+ * None of them can watch for the assignment: the address is a plain `var` with no flow behind it,
+ * and this function is its only writer — so "the assignment took effect" is announced from the
+ * one place that makes it true, rather than inferred somewhere else.
  */
 internal object OverlayEnrollmentController {
 
@@ -134,9 +136,12 @@ internal object OverlayEnrollmentController {
         // The assignment usually *is* the endpoint (these are what rung 3 reads), so this is
         // also the first moment the ladder can find anything on a freshly enrolled install.
         OverlayEndpointDiscovery.refreshAsync()
-        // The mTLS registration hook that mobile fires here belongs to the slice that ports
-        // `MtlsRegistrar`; it is omitted rather than stubbed, so "the assignment took effect" is
-        // not silently true for the address and false for the certificate.
+        // ⚠️ **The certificate rides on the assignment, not on a schedule of its own.** The CN it
+        // must carry *is* the device name written two lines up, and the edge's allow-list is keyed
+        // on that string — so anything that applies one without the other leaves a device holding
+        // a tunnel it may use and a certificate it may not. Cheap to call repeatedly: the
+        // registrar re-reads its plan and answers `AlreadyRegistered` without network I/O.
+        MtlsRegistration.requestRegistration()
     }
 
     private fun read(store: DesktopStorage.Store): CachedAssignment? {
