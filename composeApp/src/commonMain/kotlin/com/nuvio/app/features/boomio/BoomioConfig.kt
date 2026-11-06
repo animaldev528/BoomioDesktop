@@ -38,6 +38,31 @@ object BoomioConfig {
      */
     var companionBaseUrl: String = ""
 
+    /**
+     * The server's address on the WireGuard overlay, e.g. `10.77.0.1`. Blank disables the
+     * overlay resolver.
+     *
+     * **Learned, not configured.** Enrollment derives it from the assigned CIDR, so a build
+     * aimed at no deployment in particular still gets it right once the device has enrolled.
+     * An operator-supplied value stands in only until then.
+     */
+    var overlayServerAddress: String = ""
+
+    /**
+     * **This device's own** address inside the overlay, CIDR form — `10.77.0.2/32`.
+     * Written by enrollment; it must be the address the server enrolled this key with.
+     */
+    var overlayLocalCidr: String = ""
+
+    /** Where the tunnel's UDP goes, in the clear — the server's public endpoint. */
+    var overlayEndpoint: String = ""
+
+    /** The server's WireGuard public key, base64, as the enrollment assigned it. */
+    var overlayServerPubKey: String = ""
+
+    /** The name the server gave this device; the `CN` its client certificate must carry. */
+    var overlayDeviceName: String = ""
+
     /** True when the companion seam is configured ([companionBaseUrl] is set). */
     fun companionEnabled(): Boolean = companionBaseUrl.isNotBlank()
 }

@@ -20,6 +20,7 @@ import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.deeplink.handleAppUrl
 import com.nuvio.app.core.diagnostics.SentryInitializer
+import com.nuvio.app.core.overlay.OverlayEnrollmentController
 import com.nuvio.app.core.ui.NuvioTheme
 import com.nuvio.app.core.ui.ProvideDesktopWindowInsets
 import com.nuvio.app.features.boomio.BoomioConfig
@@ -61,6 +62,9 @@ fun main(args: Array<String>) {
     BoomioConfig.companionBaseUrl = BoomioRuntimeConfig.COMPANION_URL
     // Loads a persisted `bs_ses_*` token before any UI can ask for one; a no-op on a first run.
     BoomioSessionRepository.initialize()
+    // Applies last run's overlay assignment synchronously, so a cold start off-network still
+    // has a working tunnel before anything tries to talk to the server.
+    OverlayEnrollmentController.initialize()
 
     // On Linux, initialize GTK BEFORE AWT/Compose/Skia to prevent GdkDisplayManager
     // type registration conflict (Skiko partially loads GDK without full GTK init).

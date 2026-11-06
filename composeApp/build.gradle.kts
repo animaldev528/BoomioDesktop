@@ -1294,6 +1294,10 @@ kotlin {
         val desktopTest by getting {
             dependencies {
                 implementation(compose.desktop.uiTestJUnit4)
+                // The enrollment wire contract is pinned against literal HTTP responses; the
+                // fake server is the only way to prove the route names and field names match
+                // what bsc actually mounts.
+                implementation("com.squareup.okhttp3:mockwebserver:5.3.2")
             }
         }
         commonTest.dependencies {
