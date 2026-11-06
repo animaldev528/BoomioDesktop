@@ -64,6 +64,12 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     abstract val sentryEnvironment: Property<String>
 
     @get:Input
+    abstract val boomioBaseUrl: Property<String>
+
+    @get:Input
+    abstract val bsmBaseUrl: Property<String>
+
+    @get:Input
     abstract val tmdbApiKey: Property<String>
 
     @TaskAction
@@ -82,6 +88,22 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |    const val URL = "${supabaseUrl.get()}"
                 |    const val ANON_KEY = "${supabaseAnonKey.get()}"
                 |    const val FALLBACK_URL = "${supabaseFallbackUrl.get()}"
+                |}
+                """.trimMargin()
+            )
+        }
+
+        // Boomio endpoints. Blank on a stock build, which keeps BoomioStreamResolver
+        // and BsmRatingGate inert; Main.kt assigns these into BoomioConfig at startup.
+        outDir.resolve("com/nuvio/app/features/boomio").apply {
+            mkdirs()
+            resolve("BoomioRuntimeConfig.kt").writeText(
+                """
+                |package com.nuvio.app.features.boomio
+                |
+                |object BoomioRuntimeConfig {
+                |    const val BASE_URL = "${boomioBaseUrl.get()}"
+                |    const val BSM_BASE_URL = "${bsmBaseUrl.get()}"
                 |}
                 """.trimMargin()
             )
@@ -575,6 +597,8 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
             else -> "production"
         }
     )
+    boomioBaseUrl.set(runtimeConfigValue("BOOMIO_BASE_URL"))
+    bsmBaseUrl.set(runtimeConfigValue("BSM_BASE_URL"))
 }
 
 val isMacHost = System.getProperty("os.name").contains("mac", ignoreCase = true)

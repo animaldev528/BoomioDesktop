@@ -22,6 +22,8 @@ import com.nuvio.app.core.deeplink.handleAppUrl
 import com.nuvio.app.core.diagnostics.SentryInitializer
 import com.nuvio.app.core.ui.NuvioTheme
 import com.nuvio.app.core.ui.ProvideDesktopWindowInsets
+import com.nuvio.app.features.boomio.BoomioConfig
+import com.nuvio.app.features.boomio.BoomioRuntimeConfig
 import com.nuvio.app.features.discordrpc.DiscordPresenceManager
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.plugins.configureDesktopQuickJsLibrary
@@ -51,6 +53,11 @@ private const val MacosDarkAquaAppearance = "NSAppearanceNameDarkAqua"
 
 @OptIn(ExperimentalComposeUiApi::class)
 fun main(args: Array<String>) {
+    // Boomio endpoints are baked at build time and injected here. Both are blank on a
+    // stock Nuvio build, which leaves the boomio seams inert.
+    BoomioConfig.boomioBaseUrl = BoomioRuntimeConfig.BASE_URL
+    BoomioConfig.bsmBaseUrl = BoomioRuntimeConfig.BSM_BASE_URL
+
     // On Linux, initialize GTK BEFORE AWT/Compose/Skia to prevent GdkDisplayManager
     // type registration conflict (Skiko partially loads GDK without full GTK init).
     if (System.getProperty("os.name", "").lowercase().contains("linux")) {
