@@ -47,6 +47,13 @@ fun App(
     onTabTitles: ((home: String, search: String, library: String, profile: String, switchProfile: String, addProfile: String) -> Unit)? = null,
     nativeProfileSwitcherController: NativeProfileSwitcherController? = null,
     appGateController: AppGateController? = null,
+    /**
+     * The platform's first-run pairing screen, or null for none — see [AppGate].
+     *
+     * Passed straight through rather than composed here so the setup step sits *inside* the app's
+     * theme and gate, exactly where mobile's does, instead of above them.
+     */
+    deviceSetupContent: (@Composable (onSkip: () -> Unit) -> Unit)? = null,
 ) {
     AppEnvironment {
         AppGate(
@@ -68,6 +75,7 @@ fun App(
             onTabTitles = onTabTitles,
             nativeProfileSwitcherController = nativeProfileSwitcherController,
             appGateController = appGateController,
+            deviceSetupContent = deviceSetupContent,
         )
     }
 }

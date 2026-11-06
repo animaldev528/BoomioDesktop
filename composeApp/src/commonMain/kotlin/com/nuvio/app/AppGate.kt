@@ -39,6 +39,7 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.auth.AuthScreen
+import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.CollectionSyncService
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -90,6 +91,15 @@ internal suspend fun warmProfileBoundRepositories() {
 private enum class AppGateScreen {
     Loading,
     Auth,
+
+    /**
+     * The first-run device setup step, shown before [Auth] on a device that has never paired.
+     *
+     * It is a **separate screen rather than a section of the sign-in screen** because it is a
+     * precondition for signing in, not part of it: an unpaired device has no address to reach the
+     * server on, so it has nothing to sign in *to* yet.
+     */
+    DeviceSetup,
     ProfileSelection,
     ProfileEdit,
     Main,
@@ -115,6 +125,16 @@ internal fun AppGate(
     onTabTitles: ((home: String, search: String, library: String, profile: String, switchProfile: String, addProfile: String) -> Unit)?,
     nativeProfileSwitcherController: NativeProfileSwitcherController?,
     appGateController: AppGateController?,
+    /**
+     * The platform's first-run pairing screen, or null to skip the step entirely.
+     *
+     * ⚠️ **Injected rather than implemented here, and that is the point.** The pairing machine is
+     * `BoomioSessionRepository`, which is common code; the screen that renders it is not — desktop
+     * has `DeviceSetupGate` and the mobile targets have theirs. `commonMain` cannot name a
+     * `desktopMain` composable, so the gate takes the content instead of the file, and every
+     * platform that does not pass one keeps exactly the sign-in flow it had.
+     */
+    deviceSetupContent: (@Composable (onSkip: () -> Unit) -> Unit)? = null,
 ) {
     if (bypassAppGate) {
         MainAppContent(
@@ -187,6 +207,29 @@ internal fun AppGate(
     }
 
     var gateScreen by rememberSaveable { mutableStateOf(AppGateScreen.Loading.name) }
+
+    /**
+     * The boomio session, hydrated from disk by `BoomioSessionRepository.initialize()`.
+     *
+     * Non-null is exactly "this device has paired before", which is the question the setup step
+     * asks. A device that paired on an earlier run skips the step entirely and goes straight to
+     * the sign-in screen it already had — this must not re-ask on every launch.
+     */
+    val boomioSession by BoomioSessionRepository.session.collectAsStateWithLifecycle()
+
+    /**
+     * ⚠️ Saveable rather than plain `remember`: a configuration change mid-setup would otherwise
+     * discard the skip and drop the user back onto the screen they had just dismissed. This is
+     * the escape hatch for anyone running against a server that does not do boomio pairing at
+     * all, so losing it is not cosmetic.
+     */
+    var deviceSetupSkipped by rememberSaveable { mutableStateOf(false) }
+
+    // ⚠️ `deviceSetupContent != null` is part of the condition, not an afterthought. A build that
+    // injects no setup screen must not route the user to one it cannot render.
+    val needsDeviceSetup =
+        deviceSetupContent != null && boomioSession == null && !deviceSetupSkipped
+
     var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
     var autoSkipProfileSelection by rememberSaveable { mutableStateOf(false) }
     var profileSelectionLoading by rememberSaveable { mutableStateOf(false) }
@@ -344,7 +387,9 @@ internal fun AppGate(
         }
     }
 
-    LaunchedEffect(authState, networkStatusUiState.condition, profileState.profiles) {
+    // `needsDeviceSetup` is a key, not just a read: pairing completing changes it, and that
+    // change is what carries the device off the setup step and on to sign-in.
+    LaunchedEffect(authState, networkStatusUiState.condition, profileState.profiles, needsDeviceSetup) {
         val cachedProfiles = profileState.profiles
         val hasCachedProfileAccess =
             cachedProfiles.isNotEmpty() &&
@@ -353,7 +398,8 @@ internal fun AppGate(
             hasCachedProfileAccess &&
                 (
                     networkStatusUiState.condition != NetworkCondition.Online ||
-                        gateScreen != AppGateScreen.Auth.name
+                        (gateScreen != AppGateScreen.Auth.name &&
+                            gateScreen != AppGateScreen.DeviceSetup.name)
                 )
 
         when (authState) {
@@ -371,13 +417,29 @@ internal fun AppGate(
                     ProfileRepository.clearInMemory()
                     profileSelectionLoading = false
                     profileSelectionTransitionActive = false
-                    gateScreen = AppGateScreen.Auth.name
+                    // Setup first, sign-in second — and only for a device that has never paired.
+                    // `needsDeviceSetup` is false the moment a session exists, so this is the
+                    // same sign-in path as before for every device already through it.
+                    gateScreen = if (needsDeviceSetup) {
+                        AppGateScreen.DeviceSetup.name
+                    } else {
+                        AppGateScreen.Auth.name
+                    }
                 }
             }
             is AuthState.Authenticated -> {
                 val authenticatedState = authState as AuthState.Authenticated
                 ProfileRepository.ensureLoaded(authenticatedState.userId)
-                if (gateScreen == AppGateScreen.Loading.name || gateScreen == AppGateScreen.Auth.name) {
+                // ⚠️ `DeviceSetup` belongs in this list. A session can appear or a token can be
+                // restored while the setup step is on screen — pairing completing is one way, and
+                // a restore racing the first composition is another — and without it the device
+                // would be authenticated and still sitting on a setup screen it no longer needs,
+                // with nothing left to advance it.
+                if (
+                    gateScreen == AppGateScreen.Loading.name ||
+                    gateScreen == AppGateScreen.Auth.name ||
+                    gateScreen == AppGateScreen.DeviceSetup.name
+                ) {
                     enterProfileGate(ProfileRepository.state.value.profiles, syncOnEnter = true)
                 }
             }
@@ -483,6 +545,11 @@ internal fun AppGate(
                 }
                 AppGateScreen.Auth.name -> {
                     AuthScreen(modifier = Modifier.fillMaxSize())
+                }
+                AppGateScreen.DeviceSetup.name -> {
+                    // Non-null here by construction: `needsDeviceSetup` is what routed us to this
+                    // screen, and it is false when the content is null.
+                    deviceSetupContent?.invoke { deviceSetupSkipped = true }
                 }
                 AppGateScreen.ProfileSelection.name -> {
                     Box(

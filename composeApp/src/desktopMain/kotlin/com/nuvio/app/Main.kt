@@ -29,6 +29,7 @@ import com.nuvio.app.core.ui.ProvideDesktopWindowInsets
 import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.app.features.boomio.BoomioRuntimeConfig
 import com.nuvio.app.features.boomio.BoomioSessionRepository
+import com.nuvio.app.features.boomio.DeviceSetupGate
 import com.nuvio.app.features.discordrpc.DiscordPresenceManager
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.plugins.configureDesktopQuickJsLibrary
@@ -244,7 +245,15 @@ fun main(args: Array<String>) {
 
             if (smokePlayerUrl == null) {
                 ProvideDesktopWindowInsets(isFullscreen = windowState.placement == WindowPlacement.Fullscreen) {
-                    App()
+                    // ⚠️ Pairing comes before sign-in, not behind it. A desktop that has never
+                    // paired has no address to reach the server on, so it has nothing to sign in
+                    // to; `AppGate` routes to this screen first and leaves it the moment a
+                    // session exists. Skipping is allowed and is what keeps a stock build usable.
+                    App(
+                        deviceSetupContent = { onSkip ->
+                            DeviceSetupGate(onSkip = onSkip)
+                        },
+                    )
                 }
             } else {
                 // The player surface reads LocalNuvioPlatformDensity, which only
