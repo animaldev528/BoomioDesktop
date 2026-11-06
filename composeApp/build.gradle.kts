@@ -1024,6 +1024,18 @@ tasks.withType<Jar>().configureEach {
         from(layout.projectDirectory.file("src/desktopMain/native/windows/engine/nuvio_engine.dll")) {
             into("native/windows")
         }
+        // The WireGuard tunnel library. `overlaywg/build-desktop.sh` writes it to
+        // `build/windows-amd64/overlaywg.dll`; a Windows host that has not run that script simply
+        // has no directory here and the copy is a no-op, which is why this is not required to exist
+        // the way the player bridge is. Without it the app installs and runs as a plain media
+        // client and every boomio feature is inert: enrollment needs the device key that this
+        // library mints, and the tunnel, the relay and the certificate all hang off enrollment.
+        // Found at runtime by OverlayWgLibrary's classpath fallback, which extracts it from
+        // `native/windows` into the app cache — the same route the player bridge takes.
+        from(layout.projectDirectory.dir("overlaywg/build/windows-amd64")) {
+            include("overlaywg.dll")
+            into("native/windows")
+        }
     }
     if (isLinuxHost && name == "desktopJar") {
         dependsOn(buildLinuxPlayerBridge)

@@ -1,0 +1,164 @@
+name: Desktop Windows (test build)
+
+# A hand-run Windows build of this fork, for trying it on a real machine.
+#
+# ⚠️ **Why this exists next to `desktop-release.yml` rather than inside it.** That workflow is
+# upstream's signing and publishing pipeline: it pulls `local.properties` out of a repository
+# secret, uploads source bundles to Sentry, refuses to run when any of that is missing, and gates on
+# a `desktop-release` environment. None of it is configured on this fork, and none of it is needed
+# to answer "does the tunnel work on Windows". This one takes its deployment settings as inputs,
+# builds unsigned, and hands back a zip.
+#
+# ⚠️ **The step that matters is `Build the overlay tunnel library`.** The Go tunnel is the thing
+# that has never existed for Windows: without `overlaywg.dll` the app installs and runs as a plain
+# media client, and every boomio feature is inert — enrollment wants the device key that library
+# mints, and the tunnel, the relay and the certificate all hang off enrollment.
+# `overlaywg/build-desktop.sh` already knows how to build it for `MINGW*`; nothing had ever called
+# it on Windows.
+on:
+  workflow_dispatch:
+    inputs:
+      boomio_base_url:
+        description: "Origin of the box this build should talk to, e.g. https://home.duckdns.org (required for pairing to work)"
+        required: true
+        type: string
+      supabase_url:
+        description: "Supabase URL for sign-in (optional; blank leaves sign-in inert)"
+        required: false
+        type: string
+        default: ""
+      supabase_anon_key:
+        description: "Supabase anon key (optional; needed for sign-in)"
+        required: false
+        type: string
+        default: ""
+      package_as:
+        description: "zip = unzip and run the .exe; msi = an installer"
+        required: true
+        type: choice
+        options:
+          - zip
+          - msi
+        default: zip
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-windows-test-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows x64 (unsigned)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      # Read by `runtimeConfigValue` in composeApp/build.gradle.kts, which prefers
+      # local.properties and falls back to the environment. That is what bakes the deployment into
+      # BoomioConfig; without it the build is the stock app and `startLink` refuses.
+      BOOMIO_BASE_URL: ${{ inputs.boomio_base_url }}
+      NUVIO_SUPABASE_URL: ${{ inputs.supabase_url }}
+      NUVIO_SUPABASE_ANON_KEY: ${{ inputs.supabase_anon_key }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Fetch Windows runtime
+        shell: bash
+        run: |
+          # libmpv and the player bridge runtime are Git LFS objects inherited from upstream.
+          git lfs pull --include="composeApp/src/desktopMain/native/windows/runtime/**" --exclude=""
+          runtime_path="composeApp/src/desktopMain/native/windows/runtime/libmpv-2.dll"
+          if [[ ! -f "${runtime_path}" ]]; then
+            echo "The bundled Windows libmpv runtime is missing." >&2
+            exit 1
+          fi
+          runtime_size="$(wc -c < "${runtime_path}")"
+          if (( runtime_size < 1000000 )); then
+            echo "The bundled Windows libmpv runtime was not materialized from Git LFS." >&2
+            exit 1
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Set up Go and MinGW
+        shell: pwsh
+        run: |
+          # The runtime image already carries Go; pin it so a runner change is visible here.
+          go version
+          choco install mingw --no-progress -y
+          $mingwBin = (Get-ChildItem -Path "$env:ProgramData\chocolatey\lib\mingw\tools\install" -Filter "mingw64" -Directory -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1)
+          if (-not $mingwBin) { throw "MinGW-w64 was not installed where expected." }
+          $binPath = Join-Path $mingwBin.FullName "bin"
+          if (-not (Test-Path (Join-Path $binPath "gcc.exe"))) { throw "gcc.exe not found under $binPath" }
+          "C:\Program Files\Git\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $binPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "CC=$(Join-Path $binPath 'gcc.exe')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build the overlay tunnel library
+        shell: bash
+        run: |
+          # ⚠️ The whole point of this workflow. `build-desktop.sh` reads `uname -s`, which under Git
+          # Bash on a Windows runner is `MINGW64_NT-...` — the branch it already handles.
+          CGO_ENABLED=1 ./overlaywg/build-desktop.sh
+          dll="overlaywg/build/windows-amd64/overlaywg.dll"
+          if [[ ! -f "${dll}" ]]; then
+            echo "overlaywg/build-desktop.sh did not produce ${dll}" >&2
+            exit 1
+          fi
+          echo "built ${dll}: $(wc -c < "${dll}") bytes"
+          # Prove the C ABI really is there rather than trusting the byte count.
+          grep -c "overlaywg_" "${dll}" >/dev/null || {
+            echo "The DLL does not export the overlaywg symbols." >&2
+            exit 1
+          }
+
+      - name: Build distributable
+        shell: pwsh
+        run: |
+          $task = if ("${{ inputs.package_as }}" -eq "msi") { ":composeApp:packageReleaseMsi" } else { ":composeApp:createReleaseDistributable" }
+          & .\gradlew.bat $task "-Pcompose.desktop.packaging.checkJdkVendor=false" --stacktrace
+          if ($LASTEXITCODE -ne 0) { throw "Gradle failed with exit code $LASTEXITCODE" }
+
+      - name: Collect artifact
+        shell: pwsh
+        run: |
+          $out = "composeApp\build\compose\binaries\main-release"
+          $stamp = $env:GITHUB_SHA.Substring(0, 7)
+          if ("${{ inputs.package_as }}" -eq "msi") {
+            $msi = Get-ChildItem -Path $out -Filter "*.msi" -Recurse | Select-Object -First 1
+            if (-not $msi) { throw "No MSI was produced under $out" }
+            "ARTIFACT_PATH=$($msi.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "ARTIFACT_NAME=nuvio-windows-x64-$stamp.msi" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          } else {
+            $appDir = Join-Path $out "app"
+            if (-not (Test-Path $appDir)) { throw "No app image was produced at $appDir" }
+            # The DLL has to be inside the image, not merely built: the app resolves it from the
+            # jar's `native/windows` entry on first use.
+            $dll = Get-ChildItem -Path $appDir -Filter "overlaywg.dll" -Recurse | Select-Object -First 1
+            if (-not $dll) {
+              throw "overlaywg.dll is not in the app image - the jar did not pick up overlaywg/build/windows-amd64."
+            }
+            $zip = Join-Path $env:RUNNER_TEMP "nuvio-windows-x64-$stamp.zip"
+            Compress-Archive -Path (Join-Path $appDir "*") -DestinationPath $zip -Force
+            "ARTIFACT_PATH=$zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "ARTIFACT_NAME=nuvio-windows-x64-$stamp.zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_PATH }}
+          if-no-files-found: error
+          retention-days: 14
