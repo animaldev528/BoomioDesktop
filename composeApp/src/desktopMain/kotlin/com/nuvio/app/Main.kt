@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.deeplink.handleAppUrl
 import com.nuvio.app.core.diagnostics.SentryInitializer
 import com.nuvio.app.core.overlay.OverlayEnrollmentController
+import com.nuvio.app.core.overlay.OverlayRelay
+import com.nuvio.app.core.overlay.OverlaySession
 import com.nuvio.app.core.ui.NuvioTheme
 import com.nuvio.app.core.ui.ProvideDesktopWindowInsets
 import com.nuvio.app.features.boomio.BoomioConfig
@@ -65,6 +67,13 @@ fun main(args: Array<String>) {
     // Applies last run's overlay assignment synchronously, so a cold start off-network still
     // has a working tunnel before anything tries to talk to the server.
     OverlayEnrollmentController.initialize()
+    // Creates the device identity (not a tunnel) and starts the ladder collector. Must come
+    // after the assignment is applied, so a cached address is already in place when the driver's
+    // gate is checked for the first time.
+    OverlaySession.initialize()
+    // Binds the loopback CONNECT relay. Inert until an overlay address exists, and re-checked
+    // when enrollment learns one.
+    OverlayRelay.initialize()
 
     // On Linux, initialize GTK BEFORE AWT/Compose/Skia to prevent GdkDisplayManager
     // type registration conflict (Skiko partially loads GDK without full GTK init).

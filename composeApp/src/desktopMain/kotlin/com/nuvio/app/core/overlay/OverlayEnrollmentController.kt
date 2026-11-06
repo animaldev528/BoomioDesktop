@@ -25,11 +25,10 @@ import kotlinx.coroutines.launch
  *   - applying an assignment writes [BoomioConfig], which is what the tunnel ladder and the
  *     DNS seam read live.
  *
- * ⚠️ **What is deliberately missing here, and why.** Mobile's `writeConfig` also wakes
- * `OverlaySession`, `OverlayRelay` and `MtlsRegistration`. Those three have not been ported yet,
- * and calling a no-op stub in their place would make "the assignment took effect" true for the
- * address but silently false for the certificate and the bridge. The hooks are therefore
- * omitted, not faked; each lands with the class it wakes.
+ * ⚠️ **The hooks, and the order they fire in.** Mobile's `writeConfig` also wakes
+ * `OverlaySession` and `OverlayRelay`; both are called below. The mTLS registration hook is
+ * omitted rather than stubbed — it lands with `MtlsRegistrar`, and a no-op in its place would
+ * make "the assignment took effect" true for the address and silently false for the certificate.
  */
 internal object OverlayEnrollmentController {
 
@@ -126,8 +125,18 @@ internal object OverlayEnrollmentController {
         assignment.serverAddress.takeIf { it.isNotBlank() }?.let {
             BoomioConfig.overlayServerAddress = it
         }
-        // The mTLS registration and the companion bridge hooks that mobile fires here belong to
-        // the slices that port `MtlsRegistrar` and `OverlaySession`/`OverlayRelay`.
+        // ⚠️ **Order matters, and it is mobile's.** The session goes first: it is what rebuilds
+        // the device onto the assigned /32, and the relay's bound status is only meaningful once
+        // there is a tunnel to carry. Both are told rather than polled — the address is a plain
+        // `var` with no flow behind it, and the writer is one call away.
+        OverlaySession.onServerAddressLearned()
+        OverlayRelay.onServerAddressLearned()
+        // The assignment usually *is* the endpoint (these are what rung 3 reads), so this is
+        // also the first moment the ladder can find anything on a freshly enrolled install.
+        OverlayEndpointDiscovery.refreshAsync()
+        // The mTLS registration hook that mobile fires here belongs to the slice that ports
+        // `MtlsRegistrar`; it is omitted rather than stubbed, so "the assignment took effect" is
+        // not silently true for the address and false for the certificate.
     }
 
     private fun read(store: DesktopStorage.Store): CachedAssignment? {

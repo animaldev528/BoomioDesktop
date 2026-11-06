@@ -341,10 +341,36 @@ internal object OverlayWgTunnelController {
     @Volatile
     private var store: DesktopStorage.Store? = null
 
+    /**
+     * Whether a person asked for the tunnel to stay down.
+     *
+     * Persisted, because the device has no opinion about this and the *user* does: without it a
+     * relaunch would bring the tunnel back up on the next `Found`, and "Disconnect" would mean
+     * "until the app restarts" — which is not what a troubleshooting control promises.
+     */
+    private val _manuallyDisconnected = MutableStateFlow(false)
+    val manuallyDisconnected: StateFlow<Boolean> = _manuallyDisconnected.asStateFlow()
+
+    fun setManuallyDisconnected(value: Boolean) {
+        _manuallyDisconnected.value = value
+        // Written synchronously: being killed right after a Disconnect is exactly the case this
+        // preference exists for, and a queued write can lose that race.
+        store?.putBoolean(KEY_MANUALLY_DISCONNECTED, value)
+    }
+
+    /**
+     * Set once the binding has failed to load, so the failure is reported once rather than on
+     * every [instance] access — and so the retry does not repeat a native-library search on every
+     * relay dial. Recovering needs a restart, which is the honest bound on a build-time artifact.
+     */
+    @Volatile
+    private var loadFailed = false
+
     fun initialize() {
-        if (tunnel != null) return
+        if (tunnel != null || loadFailed) return
         val preferences = DesktopStorage.store("boomio_overlay_tunnel")
         store = preferences
+        _manuallyDisconnected.value = preferences.getBoolean(KEY_MANUALLY_DISCONNECTED) ?: false
         tunnel = OverlayWgTunnel(
             binding = OverlayWgBindingProvider.binding,
             loadKeypair = { readKeypair(preferences) },
@@ -362,8 +388,30 @@ internal object OverlayWgTunnelController {
      * exactly what a missing library degrades to.
      */
     val instance: OverlayWgTunnel? get() {
-        initialize()
+        // ⚠️ **The throw is swallowed here rather than at every call site.** "The native library
+        // is not on this build" is the one failure this getter is asked about, and the answer
+        // contract is "null means no tunnel" — not an exception. `initialize()` retries while
+        // `tunnel` is null, so a build without the library would otherwise raise this every time
+        // the relay dials, not once.
+        runCatching { initialize() }
+            .onFailure {
+                loadFailed = true
+                OverlayLog.w(TAG, "Overlay tunnel unavailable on this build", it)
+            }
         return tunnel
+    }
+
+    /**
+     * Drops every in-memory field, as a process restart would.
+     *
+     * Tests only — it is what lets a suite prove the disconnect choice comes back **off disk**
+     * rather than out of a field that was never cleared.
+     */
+    internal fun resetForTests() {
+        tunnel = null
+        store = null
+        loadFailed = false
+        _manuallyDisconnected.value = false
     }
 
     private fun readKeypair(store: DesktopStorage.Store): OverlayWgKeypair? {
@@ -385,6 +433,7 @@ internal object OverlayWgTunnelController {
         store.putString(KEY_PUBLIC_HEX, kp.publicKeyHex)
     }
 
+    private const val KEY_MANUALLY_DISCONNECTED = "manually_disconnected"
     private const val KEY_PRIVATE_B64 = "private_key_b64"
     private const val KEY_PUBLIC_B64 = "public_key_b64"
     private const val KEY_PRIVATE_HEX = "private_key_hex"

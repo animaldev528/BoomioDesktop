@@ -525,6 +525,16 @@ internal class OverlayRelayHandle internal constructor(
     private val connections: CoroutineScope,
     private val acceptJob: Job,
 ) {
+    /**
+     * Whether the listening socket has been released.
+     *
+     * Tests only, and it exists because the obvious way to test "the port was released" —
+     * connect to it and expect a refusal — is unreliable in a shared JVM: the port is ephemeral,
+     * so another test's listener can legitimately be bound to it by the time the probe runs, and
+     * the check then fails for a reason with nothing to do with this relay.
+     */
+    internal val isListenerClosed: Boolean get() = serverSocket.isClosed
+
     /** Stops accepting, drops every live connection, and releases the port. */
     fun stop() {
         // The close is what breaks the blocking `accept()`; cancelling the job alone

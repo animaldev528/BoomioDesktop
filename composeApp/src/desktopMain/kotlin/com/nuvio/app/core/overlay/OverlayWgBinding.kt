@@ -278,6 +278,10 @@ internal object OverlayWgLibrary {
             "src/desktopMain/native/$platform/overlaywg/$name",
             "composeApp/src/desktopMain/native/$platform/overlaywg/$name",
             "overlaywg/build/$platform-${architectureKey()}/$name",
+            // The module-relative variants above cover a run from the repository root. Gradle
+            // runs `desktopTest` with the *module* as the working directory, so the source tree
+            // only resolves through this one — the same pair `OverlayWgBindingSmokeTest` carries.
+            "../overlaywg/build/$platform-${architectureKey()}/$name",
         ).map(::File).firstOrNull { it.isFile }
 
     private fun extractedLibrary(platform: String, name: String): File? {

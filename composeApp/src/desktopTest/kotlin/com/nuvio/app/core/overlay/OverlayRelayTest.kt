@@ -108,7 +108,11 @@ class OverlayRelayTest {
         OverlayRelay.stop()
 
         assertEquals(RelayState.Down, OverlayRelay.state.value)
-        assertNull(connectOrNull(port), "the listener must be closed")
+        // ⚠️ Asserted on the socket, not by probing `port`. The probe is what this test used to
+        // do, and it fails intermittently for a reason that has nothing to do with the relay:
+        // the port is ephemeral and released, so another listener in the same JVM can legitimately
+        // be bound to it by the time the connect runs.
+        assertTrue(handle.isListenerClosed, "the listener must be closed")
     }
 
     @Test
