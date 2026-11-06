@@ -570,6 +570,10 @@ private fun MobileSettingsScreen(
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
 ) {
+    // The platform's VPN page body, null on every platform without a tunnel. Read once here
+    // rather than in the row: the row needs a callback only when the body exists, and a null
+    // callback is what `settingsRootContent` gates the row on.
+    val vpnContent = LocalVpnSettingsContent.current
     val saveableStateHolder = rememberSaveableStateHolder()
     saveableStateHolder.SaveableStateProvider(page.name) {
         var settingsSearchQuery by rememberSaveable { mutableStateOf("") }
@@ -683,6 +687,7 @@ private fun MobileSettingsScreen(
                     if (settingsSearchQuery.isBlank()) {
                         settingsRootContent(
                             isTablet = false,
+                            onVpnClick = vpnContent?.let { { onPageChange(SettingsPage.Vpn) } },
                             onPlaybackClick = { onPageChange(SettingsPage.Playback) },
                             onAppearanceClick = { onPageChange(SettingsPage.Appearance) },
                             onAdvancedClick = { onPageChange(SettingsPage.Advanced) },
@@ -701,6 +706,7 @@ private fun MobileSettingsScreen(
                         )
                     }
                 }
+                SettingsPage.Vpn -> vpnContent?.invoke(this, false)
                 SettingsPage.Account -> accountSettingsContent(
                     isTablet = false,
                 )
@@ -961,6 +967,10 @@ private fun TabletSettingsScreen(
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
 ) {
+    // The platform's VPN page body, null on every platform without a tunnel. Read once here
+    // rather than in the row: the row needs a callback only when the body exists, and a null
+    // callback is what `settingsRootContent` gates the row on.
+    val vpnContent = LocalVpnSettingsContent.current
     var selectedCategory by rememberSaveable { mutableStateOf(SettingsCategory.General.name) }
     val activeCategory = SettingsCategory.valueOf(selectedCategory)
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -1150,6 +1160,7 @@ private fun TabletSettingsScreen(
                                 if (settingsSearchQuery.isBlank()) {
                                     settingsRootContent(
                                         isTablet = true,
+                                        onVpnClick = vpnContent?.let { { openInlinePage(SettingsPage.Vpn) } },
                                         onPlaybackClick = { openInlinePage(SettingsPage.Playback) },
                                         onAppearanceClick = { openInlinePage(SettingsPage.Appearance) },
                                         onAdvancedClick = { openInlinePage(SettingsPage.Advanced) },
@@ -1173,6 +1184,7 @@ private fun TabletSettingsScreen(
                                     )
                                 }
                             }
+                            SettingsPage.Vpn -> vpnContent?.invoke(this, true)
                             SettingsPage.Account -> accountSettingsContent(
                                 isTablet = true,
                             )

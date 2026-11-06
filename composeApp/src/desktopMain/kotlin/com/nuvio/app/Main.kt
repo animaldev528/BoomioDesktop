@@ -7,6 +7,7 @@ import androidx.compose.ui.configureSwingGlobalsForCompose
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -30,6 +31,7 @@ import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.app.features.boomio.BoomioRuntimeConfig
 import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.app.features.boomio.DeviceSetupGate
+import com.nuvio.app.features.boomio.vpnSettingsContent
 import com.nuvio.app.features.discordrpc.DiscordPresenceManager
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.plugins.configureDesktopQuickJsLibrary
@@ -40,6 +42,7 @@ import com.nuvio.app.features.player.desktop.DesktopWindowGeometry
 import com.nuvio.app.features.player.desktop.DesktopWindowModeStorage
 import com.nuvio.app.features.player.desktop.NativePlayerBridge
 import com.nuvio.app.features.player.desktop.applyNativeDesktopWindowChrome
+import com.nuvio.app.features.settings.LocalVpnSettingsContent
 import com.nuvio.app.features.player.desktop.configureMacosWindowBeforePeer
 import com.nuvio.app.features.player.desktop.installDesktopAppFullscreenShortcuts
 import com.nuvio.app.features.player.desktop.preloadNativePlayerBridgeAsync
@@ -249,11 +252,23 @@ fun main(args: Array<String>) {
                     // paired has no address to reach the server on, so it has nothing to sign in
                     // to; `AppGate` routes to this screen first and leaves it the moment a
                     // session exists. Skipping is allowed and is what keeps a stock build usable.
-                    App(
-                        deviceSetupContent = { onSkip ->
-                            DeviceSetupGate(onSkip = onSkip)
+                    // ⚠️ The VPN page is supplied as a composition local, not a parameter.
+                    // `SettingsScreen` is two layouts with ninety arguments each and the page is
+                    // read in four places deep inside them; only the desktop build has an overlay
+                    // package to describe, and a null local is what makes every other platform's
+                    // settings tree exactly what it was. `isTablet` is the layout's own choice of
+                    // row padding, so the page is told which one is drawing it.
+                    CompositionLocalProvider(
+                        LocalVpnSettingsContent provides { isTablet ->
+                            vpnSettingsContent(isTablet = isTablet)
                         },
-                    )
+                    ) {
+                        App(
+                            deviceSetupContent = { onSkip ->
+                                DeviceSetupGate(onSkip = onSkip)
+                            },
+                        )
+                    }
                 }
             } else {
                 // The player surface reads LocalNuvioPlatformDensity, which only

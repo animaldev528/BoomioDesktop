@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.VpnKey
 import androidx.compose.ui.platform.LocalUriHandler
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_settings_page_account
@@ -39,12 +40,14 @@ import nuvio.composeapp.generated.resources.compose_settings_root_privacy_policy
 import nuvio.composeapp.generated.resources.compose_settings_root_switch_profile_description
 import nuvio.composeapp.generated.resources.compose_settings_root_switch_profile_title
 import nuvio.composeapp.generated.resources.compose_settings_root_tracking_description
+import nuvio.composeapp.generated.resources.compose_settings_root_vpn_description
 import nuvio.composeapp.generated.resources.compose_settings_root_about_section
 import nuvio.composeapp.generated.resources.compose_settings_root_account_section
 import nuvio.composeapp.generated.resources.compose_settings_root_advanced_description
 import nuvio.composeapp.generated.resources.compose_settings_root_advanced_section
 import nuvio.composeapp.generated.resources.compose_settings_page_content_discovery
 import nuvio.composeapp.generated.resources.compose_settings_page_tracking
+import nuvio.composeapp.generated.resources.compose_settings_page_vpn
 import nuvio.composeapp.generated.resources.settings_playback_subtitle
 import nuvio.composeapp.generated.resources.updates_debug_test_description
 import nuvio.composeapp.generated.resources.updates_debug_test_title
@@ -69,6 +72,11 @@ internal fun LazyListScope.settingsRootContent(
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onAccountClick: () -> Unit,
     onSwitchProfileClick: (() -> Unit)? = null,
+    // Null means this platform has no tunnel to describe, exactly as `onCheckForUpdatesClick`'s
+    // null means it cannot update itself. A Boolean would read as "the feature is switched off";
+    // the null says "there is no such page here", which is the actual fact -- only the desktop
+    // build supplies one, because the overlay package it reads is desktop-only.
+    onVpnClick: (() -> Unit)? = null,
     showNotificationsEntry: Boolean = true,
     showAccountSection: Boolean = true,
     showGeneralSection: Boolean = true,
@@ -159,6 +167,20 @@ internal fun LazyListScope.settingsRootContent(
                             icon = Icons.Rounded.Notifications,
                             isTablet = isTablet,
                             onClick = onNotificationsClick,
+                        )
+                    }
+                    // Last in General rather than next to Account: it answers "how does this
+                    // machine reach the box", which is the same question the rows above it answer,
+                    // and it is not gated on a profile or a role -- the tunnel is this device's own,
+                    // so anyone who can open Settings can be told what its traffic is doing.
+                    if (onVpnClick != null) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.compose_settings_page_vpn),
+                            description = stringResource(Res.string.compose_settings_root_vpn_description),
+                            icon = Icons.Rounded.VpnKey,
+                            isTablet = isTablet,
+                            onClick = onVpnClick,
                         )
                     }
                 }
