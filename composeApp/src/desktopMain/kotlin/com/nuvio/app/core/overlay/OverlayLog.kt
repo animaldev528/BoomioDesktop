@@ -14,6 +14,9 @@ import co.touchlab.kermit.Logger
 internal object OverlayLog {
     fun v(tag: String, message: String) = Logger.withTag(tag).v { message }
     fun d(tag: String, message: String) = Logger.withTag(tag).d { message }
+    fun d(tag: String, message: String, error: Throwable) =
+        Logger.withTag(tag).d(error) { message }
+
     fun i(tag: String, message: String) = Logger.withTag(tag).i { message }
     fun w(tag: String, message: String) = Logger.withTag(tag).w { message }
     fun w(tag: String, message: String, error: Throwable) =
