@@ -52,12 +52,14 @@ actual object AppUpdaterPlatform {
     actual val isSupported: Boolean
         get() = currentOs != DesktopUpdaterOs.UNKNOWN && linuxInstallMethod != LinuxInstallMethod.FLATPAK
 
+    // ⚠️ Points at the Boomio fork, never NuvioMedia upstream. This fork must not
+    // self-update from, or report to, the upstream project's release feed.
     actual val releaseSource: AppUpdateReleaseSource = AppUpdateReleaseSource(
-        owner = "NuvioMedia",
-        repo = "NuvioDesktop",
+        owner = "animaldev528",
+        repo = "BoomioDesktop",
         channelBranch = null,
         includePrereleases = true,
-        userAgent = "NuvioDesktop",
+        userAgent = "BoomioDesktop",
     )
 
     actual val assetSelector: AppUpdateAssetSelector
