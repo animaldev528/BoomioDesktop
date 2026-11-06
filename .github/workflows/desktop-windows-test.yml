@@ -88,7 +88,9 @@ jobs:
           java-version: 17
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+        # Pinned to a full version, not `@v6`: this repository publishes `v6.x.y` patch tags and no
+        # floating major tag, so `@v6` resolves to nothing and the job dies before it builds.
+        uses: gradle/actions/setup-gradle@v6.4.0
 
       - name: Set up Go and MinGW
         shell: pwsh
