@@ -70,6 +70,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     abstract val bsmBaseUrl: Property<String>
 
     @get:Input
+    abstract val companionUrl: Property<String>
+
+    @get:Input
     abstract val tmdbApiKey: Property<String>
 
     @TaskAction
@@ -104,6 +107,7 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |object BoomioRuntimeConfig {
                 |    const val BASE_URL = "${boomioBaseUrl.get()}"
                 |    const val BSM_BASE_URL = "${bsmBaseUrl.get()}"
+                |    const val COMPANION_URL = "${companionUrl.get()}"
                 |}
                 """.trimMargin()
             )
@@ -570,6 +574,27 @@ fun runtimeConfigValue(key: String, fallback: String = ""): String =
         ?: providers.environmentVariable(key).orNull?.trim()?.takeIf { it.isNotBlank() }
         ?: fallback
 
+/**
+ * Derives the companion hub URL from the media-plane origin when `BOOMIO_COMPANION_URL` is unset.
+ *
+ * On the collapsed edge every boomio service is one origin told apart by path — `…/bsf`, `…/bsc`,
+ * `…/bsm` — so `https://host/bsf` implies `wss://host/bsc`. Derived rather than left blank so a
+ * build that already names its media plane is not silently unable to pair; a deployment that puts
+ * the companion somewhere else still overrides with `BOOMIO_COMPANION_URL`.
+ */
+fun deriveCompanionUrl(boomioBase: String): String {
+    val trimmed = boomioBase.trim().trimEnd('/')
+    if (trimmed.isEmpty()) return ""
+    val scheme = when {
+        trimmed.startsWith("https://", ignoreCase = true) -> "wss"
+        trimmed.startsWith("http://", ignoreCase = true) -> "ws"
+        else -> return ""
+    }
+    val authority = trimmed.substringAfter("://").substringBefore('/')
+    if (authority.isBlank()) return ""
+    return "$scheme://$authority/bsc"
+}
+
 fun runtimeConfigBoolean(key: String, default: Boolean): Boolean =
     when (runtimeConfigValue(key).lowercase()) {
         "1", "true", "yes", "y", "on" -> true
@@ -597,8 +622,12 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
             else -> "production"
         }
     )
-    boomioBaseUrl.set(runtimeConfigValue("BOOMIO_BASE_URL"))
+    val boomioBase = runtimeConfigValue("BOOMIO_BASE_URL")
+    boomioBaseUrl.set(boomioBase)
     bsmBaseUrl.set(runtimeConfigValue("BSM_BASE_URL"))
+    companionUrl.set(
+        runtimeConfigValue("BOOMIO_COMPANION_URL").ifBlank { deriveCompanionUrl(boomioBase) },
+    )
 }
 
 val isMacHost = System.getProperty("os.name").contains("mac", ignoreCase = true)

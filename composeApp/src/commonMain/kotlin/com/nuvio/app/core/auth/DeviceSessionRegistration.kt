@@ -22,6 +22,15 @@ internal data class DeviceClientMetadata(
     val clientName: String,
     val deviceName: String,
     val platform: String,
+    /**
+     * The device's hardware fingerprint — the value bsm keys a device row on when a device
+     * enrols, so this pairing request joins the row its capability reports write to instead of
+     * inserting a second one for the same machine.
+     *
+     * Blank where the platform supplies none; callers omit the field then rather than send an
+     * empty string, which keeps the wire shape of a device that cannot produce one unchanged.
+     */
+    val hwFingerprint: String = "",
 )
 
 internal expect fun currentDeviceClientMetadata(): DeviceClientMetadata

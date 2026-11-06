@@ -22,4 +22,33 @@ object BoomioConfig {
 
     /** Base URL of the BSM rating service, e.g. `https://bsm.example.com`. */
     var bsmBaseUrl: String = ""
+
+    /**
+     * Base URL of the bsc companion hub, e.g. `wss://bsc.example.com` — or, on the collapsed
+     * edge, `wss://boomio.example.com/bsc`.
+     *
+     * ⚠️ **The `wss://` scheme and the path prefix are both load-bearing.** The companion
+     * WebSocket appends `/ws` to this value and Ktor refuses an `https://` scheme there, while
+     * [companionRestBaseUrl] converts the scheme back for REST calls and leaves the path alone,
+     * so the edge's `/bsc` segment carries into both. Blank is inert, like the seams above:
+     * [BoomioSessionRepository.startLink] refuses to run rather than dialing a bad URL.
+     *
+     * Sourced from `BOOMIO_COMPANION_URL`, or derived from [boomioBaseUrl]'s origin when that is
+     * unset — see the build's runtime-config generation.
+     */
+    var companionBaseUrl: String = ""
+
+    /** True when the companion seam is configured ([companionBaseUrl] is set). */
+    fun companionEnabled(): Boolean = companionBaseUrl.isNotBlank()
 }
+
+/**
+ * REST (`https://`) variant of [BoomioConfig.companionBaseUrl] for the bsc companion API.
+ *
+ * The device-code exchange that mints the `bs_ses_*` session lives entirely on this base, so a
+ * scheme mistake here fails pairing before anything else can be attempted.
+ */
+val BoomioConfig.companionRestBaseUrl: String
+    get() = companionBaseUrl.trimEnd('/')
+        .replaceFirst("wss://", "https://")
+        .replaceFirst("ws://", "http://")

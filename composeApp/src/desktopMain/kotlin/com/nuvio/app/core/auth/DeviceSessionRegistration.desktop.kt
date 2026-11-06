@@ -1,5 +1,6 @@
 package com.nuvio.app.core.auth
 
+import com.nuvio.app.core.device.DeviceHardwareFingerprint
 import java.net.InetAddress
 
 internal actual fun currentDeviceClientMetadata(): DeviceClientMetadata {
@@ -21,5 +22,8 @@ internal actual fun currentDeviceClientMetadata(): DeviceClientMetadata {
         clientName = "Nuvio Desktop",
         deviceName = deviceName,
         platform = platform,
+        // The same value an enrolment must carry, since bsm resolves the row by fingerprint
+        // before it falls back to the install id.
+        hwFingerprint = DeviceHardwareFingerprint.value(),
     )
 }

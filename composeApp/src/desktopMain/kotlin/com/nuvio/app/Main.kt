@@ -24,6 +24,7 @@ import com.nuvio.app.core.ui.NuvioTheme
 import com.nuvio.app.core.ui.ProvideDesktopWindowInsets
 import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.app.features.boomio.BoomioRuntimeConfig
+import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.app.features.discordrpc.DiscordPresenceManager
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.plugins.configureDesktopQuickJsLibrary
@@ -57,6 +58,9 @@ fun main(args: Array<String>) {
     // stock Nuvio build, which leaves the boomio seams inert.
     BoomioConfig.boomioBaseUrl = BoomioRuntimeConfig.BASE_URL
     BoomioConfig.bsmBaseUrl = BoomioRuntimeConfig.BSM_BASE_URL
+    BoomioConfig.companionBaseUrl = BoomioRuntimeConfig.COMPANION_URL
+    // Loads a persisted `bs_ses_*` token before any UI can ask for one; a no-op on a first run.
+    BoomioSessionRepository.initialize()
 
     // On Linux, initialize GTK BEFORE AWT/Compose/Skia to prevent GdkDisplayManager
     // type registration conflict (Skiko partially loads GDK without full GTK init).
