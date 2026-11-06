@@ -1,5 +1,7 @@
 package com.nuvio.app.features.addons
 
+import com.nuvio.app.core.mtls.withClientCertificate
+import com.nuvio.app.core.overlay.OverlayProxy
 import com.nuvio.app.core.storage.DesktopStorage
 import com.nuvio.app.core.network.DesktopIPv4FirstDns
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +45,28 @@ internal actual object AddonStorage {
     }
 }
 
-private val desktopHttpClient = OkHttpClient.Builder()
+/**
+ * The one client every addon request goes through, and the first desktop client that carries the
+ * overlay plane.
+ *
+ * ⚠️ **Both halves are load-bearing here, and they are the same call site on purpose.** The addon
+ * catalogue is the app's busiest traffic *and* almost all of it is served by the user's own server
+ * (on the reference deployment 19 of 21 addons sit on the server's own domain), so this is where
+ * the tunnel earns its keep: [OverlayProxy.withOverlayProxy] routes those hosts through the
+ * loopback relay and the WireGuard tunnel, and answers `DIRECT` for a third-party addon.
+ *
+ * [withClientCertificate] rides along because the edge lists this device's certificate per host —
+ * and a TLS client only sends one when the server asks (RFC 8446 §4.4.2), so a public Stremio
+ * addon sees exactly the handshake it saw before. That is the same "attach everywhere, decide
+ * nowhere" rule the mobile client follows.
+ *
+ * Both are inert until the pieces behind them exist: the relay with no overlay address, the
+ * certificate with no registration. Inert means "the app behaves exactly as it did before", not
+ * "requests fail" — [OverlayProxy] falls back to `NO_PROXY` and [withClientCertificate] to the
+ * platform socket factory.
+ */
+private val desktopHttpClient = OverlayProxy.withOverlayProxy(OkHttpClient.Builder())
+    .withClientCertificate()
     .dns(DesktopIPv4FirstDns())
     .connectTimeout(60, TimeUnit.SECONDS)
     .readTimeout(60, TimeUnit.SECONDS)

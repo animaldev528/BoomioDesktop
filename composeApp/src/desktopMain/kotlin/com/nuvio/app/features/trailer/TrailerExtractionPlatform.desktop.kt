@@ -1,5 +1,6 @@
 package com.nuvio.app.features.trailer
 
+import com.nuvio.app.core.overlay.OverlayProxy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +28,14 @@ internal object TrailerExtractionPlatform {
             "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
     )
 
-    private val httpClient = OkHttpClient.Builder()
+    /**
+     * ⚠️ **The proxy, but not the certificate.** Trailers come from third-party hosts (YouTube,
+     * TMDb) which are never served by this deployment's edge, so attaching the client certificate
+     * to them would be pointing an identity at a stranger for no gain — mobile draws the line in
+     * exactly the same place. The proxy is still attached, and answers `NO_PROXY` when the relay is
+     * not up, so this client behaves as it always did until an overlay exists.
+     */
+    private val httpClient = OverlayProxy.withOverlayProxy(OkHttpClient.Builder())
         .connectTimeout(TRAILER_REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .readTimeout(TRAILER_REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .writeTimeout(TRAILER_REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -35,7 +43,8 @@ internal object TrailerExtractionPlatform {
         .followSslRedirects(true)
         .build()
 
-    private val probeClient = OkHttpClient.Builder()
+    /** Same seam as [httpClient], on the short-timeout client the probe uses. */
+    private val probeClient = OverlayProxy.withOverlayProxy(OkHttpClient.Builder())
         .connectTimeout(2, TimeUnit.SECONDS)
         .readTimeout(2, TimeUnit.SECONDS)
         .followRedirects(true)
