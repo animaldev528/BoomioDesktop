@@ -3,14 +3,20 @@ package com.nuvio.app.core.overlay
 import com.nuvio.app.core.mtls.MtlsRegistration
 import com.nuvio.app.core.storage.DesktopStorage
 import com.nuvio.app.features.boomio.BoomioConfig
+import com.nuvio.app.features.boomio.BoomioSession
 import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.app.features.boomio.companionRestBaseUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -25,6 +31,13 @@ import kotlinx.coroutines.launch
  *   - the cache is a [DesktopStorage] store;
  *   - applying an assignment writes [BoomioConfig], which is what the tunnel ladder and the
  *     DNS seam read live.
+ *
+ * ⚠️ **Enrollment has to be asked for, and this object is the only thing that asks.** It did not
+ * for the first seven commits of this port: `initialize()` applied a *cached* assignment and
+ * stopped, so a machine that had paired and had never run before held a session, a device key and
+ * no way to use either — the tunnel, the relay and the certificate were all waiting on a request
+ * nothing sent. [watchCompanionSessions] closes that: the token becoming present *is* the trigger,
+ * which is what makes pairing sufficient rather than just first.
  *
  * ⚠️ **The hooks, and why they are told rather than polled.** Mobile's `writeConfig` also
  * wakes `OverlaySession`, `OverlayRelay` and `MtlsRegistration`, and all three are called below.
@@ -77,6 +90,18 @@ internal object OverlayEnrollmentController {
             remember = { cached -> store?.let { write(it, cached) } },
             apply = ::applyAssignment,
         )
+
+        // ⚠️ **This is the only thing that ever asks the server for an assignment.**
+        // A held token enrolls once at startup (the cache is not trusted, so a rotated server key
+        // is picked up); a token that appears later — this install pairing for the first time —
+        // enrolls then. `refresh()` rather than `enroll(useCache = true)` for the reason
+        // [refresh] gives: the cache here is a fallback for a failed request, not a way to skip a
+        // working one.
+        //
+        // Safe before `OverlaySession.initialize()` runs, despite the order in `main()`: the
+        // device key comes from `OverlayWgTunnelController.instance`, whose getter initialises the
+        // controller itself, and every hook `applyAssignment` fires tolerates a null driver.
+        watchCompanionSessions(scope, BoomioSessionRepository.session) { refresh() }
     }
 
     /** Applies the cache first when it matches this device key, then talks to the server. */
@@ -172,9 +197,30 @@ internal object OverlayEnrollmentController {
         store.putString(KEY_DEVICE_NAME, cached.assignment.deviceName)
     }
 
-    /** Unused today; kept wired so a UI can trigger the startup refresh without its own scope. */
-    @Suppress("unused")
-    fun refreshInBackground() {
-        scope.launch { refresh() }
-    }
+}
+
+/**
+ * Fires [onToken] once for every **distinct** companion session token.
+ *
+ * ⚠️ **Distinct, because a session is re-published for reasons that are not a new session.**
+ * `adoptSession` writes a fresh [BoomioSession] to record the user and display name the pairing
+ * returned; the token is the same one. Enrolling again for that would be a needless POST — and,
+ * worse, a needless *write* to the cache and to the certificate registrar every time anything
+ * about the session object changes. Keyed on the token, a re-link (a genuinely new token) still
+ * enrolls.
+ *
+ * ⚠️ **Null never fires.** No session means there is nothing to enroll *as*; [apiOrNull] would
+ * answer null and the enroller would report `Unavailable`, which is a state, not a failure to
+ * retry. Extracted from [OverlayEnrollmentController] so this rule is testable without a server.
+ */
+internal fun watchCompanionSessions(
+    scope: CoroutineScope,
+    sessions: Flow<BoomioSession?>,
+    onToken: suspend (String) -> Unit,
+): Job = scope.launch {
+    sessions
+        .map { it?.token }
+        .distinctUntilChanged()
+        .filterNotNull()
+        .collect(onToken)
 }
