@@ -2597,4 +2597,13 @@
     <string name="vpn_enroll_retry">Try again</string>
     <string name="vpn_enroll_pending">Asking the server for an assignment…</string>
     <string name="vpn_enroll_failed">Could not enroll: %1$s</string>
+    <string name="cast_action">Cast</string>
+    <string name="cast_title">Cast to a screen</string>
+    <string name="cast_scanning">Looking for screens on your network…</string>
+    <string name="cast_empty">No screens found. Make sure the TV is on the same network and awake, then search again.</string>
+    <string name="cast_rescan">Search again</string>
+    <string name="cast_stop">Stop casting</string>
+    <string name="cast_close">Close</string>
+    <string name="cast_preparing">Preparing the stream for %1$s…</string>
+    <string name="cast_failed">Could not cast to %1$s: %2$s</string>
 </resources>

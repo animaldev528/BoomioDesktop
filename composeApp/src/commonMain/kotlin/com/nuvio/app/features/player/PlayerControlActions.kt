@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
@@ -101,6 +102,7 @@ internal fun PlayerControlActions(
     onVideoSettingsClick: (() -> Unit)?,
     onOpenInExternalPlayer: (() -> Unit)?,
     onIdentifySongClick: (() -> Unit)?,
+    onCastClick: (() -> Unit)?,
     onStreamInfoClick: () -> Unit,
     onSubmitIntroClick: (() -> Unit)?,
     onInteraction: () -> Unit,
@@ -156,6 +158,12 @@ internal fun PlayerControlActions(
             PlayerControlAction(
                 stringResource(Res.string.music_identify_action), it,
                 icon = Icons.Rounded.MusicNote,
+            )
+        },
+        onCastClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.cast_action), it,
+                icon = Icons.Rounded.Cast,
             )
         },
         PlayerControlAction(

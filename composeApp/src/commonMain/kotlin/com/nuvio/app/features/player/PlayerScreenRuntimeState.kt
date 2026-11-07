@@ -12,6 +12,7 @@ import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaDetailsUiState
 import com.nuvio.app.features.details.MetaScreenSettingsUiState
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.cast.CastDevice
 import com.nuvio.app.features.music.MusicIdentifyRequest
 import com.nuvio.app.features.music.MusicIdentifyUiState
 import com.nuvio.app.features.p2p.P2pSettingsUiState
@@ -253,6 +254,18 @@ internal class PlayerScreenRuntime(
     var musicIdentifyState by mutableStateOf<MusicIdentifyUiState>(MusicIdentifyUiState.Idle)
     /** The context the press was made with, kept so "Add to library" saves the right moment. */
     var musicIdentifyRequest by mutableStateOf<MusicIdentifyRequest?>(null)
+    var showCastPicker by mutableStateOf(false)
+    var castDevices by mutableStateOf<List<CastDevice>>(emptyList())
+    var castScanning by mutableStateOf(false)
+    /**
+     * The device a push is in flight to, or null. A name rather than a sentence:
+     * the sheet is the only thing that may compose text, so the state stays free
+     * of wording and the message is built where `stringResource` is available.
+     */
+    var castProgressDeviceName by mutableStateOf<String?>(null)
+    /** The device a push failed on, and the reason — kept apart for the same reason. */
+    var castErrorDeviceName by mutableStateOf<String?>(null)
+    var castErrorReason by mutableStateOf<String?>(null)
     var streamMediaInfo by mutableStateOf(PlayerMediaInfo())
     var playbackEngineOverride by mutableStateOf<AndroidPlaybackEngine?>(null)
     var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())

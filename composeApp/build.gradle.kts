@@ -1251,6 +1251,10 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.swing)
                 implementation(libs.ktor.client.cio)
                 implementation("com.squareup.okhttp3:okhttp:4.12.0")
+                // CastV2 speaks JSON over the CASTV2 frames. The sender is a port
+                // of the phone's, which used the platform's org.json, so keeping
+                // the library is what makes it a copy rather than a rewrite.
+                implementation("org.json:json:20240303")
                 implementation(libs.quickjs.kt)
                 implementation(libs.ksoup)
                 implementation(libs.sentry.jvm)

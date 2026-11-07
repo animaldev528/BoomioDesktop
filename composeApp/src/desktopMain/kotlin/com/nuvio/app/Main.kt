@@ -33,6 +33,8 @@ import com.nuvio.app.features.boomio.BoomioRuntimeConfig
 import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.app.features.boomio.DeviceSetupGate
 import com.nuvio.app.features.boomio.vpnSettingsContent
+import com.nuvio.app.features.cast.CastController
+import com.nuvio.app.features.cast.DesktopCastPlatform
 import com.nuvio.app.features.discordrpc.DiscordPresenceManager
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.plugins.configureDesktopQuickJsLibrary
@@ -88,6 +90,10 @@ fun main(args: Array<String>) {
     // machine as "Awaiting Hardware Telemetry…" forever and flips it to Offline two hours after
     // pairing, because bsm's only store of liveness for a self-reporting client is this call.
     DeviceCapabilityReporter.initialize()
+    // Installs LAN discovery and the per-protocol cast transports. Every cast
+    // control in the app is gated on this being present, so a build without it
+    // has no button rather than one that fails on tap.
+    CastController.platform = DesktopCastPlatform
 
     // On Linux, initialize GTK BEFORE AWT/Compose/Skia to prevent GdkDisplayManager
     // type registration conflict (Skiko partially loads GDK without full GTK init).

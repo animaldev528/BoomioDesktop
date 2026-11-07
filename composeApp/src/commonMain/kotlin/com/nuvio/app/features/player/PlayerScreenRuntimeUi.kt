@@ -11,6 +11,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
@@ -21,6 +23,11 @@ import com.nuvio.app.core.ui.AppPresenceState
 import com.nuvio.app.core.ui.PresenceSnapshot
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.themePalette
+import com.nuvio.app.features.boomio.BoomioStreamResolver
+import com.nuvio.app.features.cast.CastController
+import com.nuvio.app.features.cast.CastDevice
+import com.nuvio.app.features.cast.CastPickerDialog
+import com.nuvio.app.features.cast.CastTarget
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.details.MetaDetailsRepository
@@ -729,6 +736,14 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
             } else {
                 null
             },
+            // A cast re-resolves the stream through the box, so it needs both a
+            // renderer-capable build and a configured boomio origin; without the
+            // second the button would only ever open an empty sheet.
+            onCastClick = if (CastController.isAvailable() && BoomioStreamResolver.isEnabled()) {
+                { openCastPicker() }
+            } else {
+                null
+            },
             onSubmitIntroClick = if (
                 isSeries &&
                 playerSettingsUiState.introSubmitEnabled &&
@@ -1303,6 +1318,116 @@ private fun PlayerScreenRuntime.saveIdentifiedSong() {
 private fun PlayerScreenRuntime.dismissMusicIdentify() {
     musicIdentifyState = MusicIdentifyUiState.Idle
     musicIdentifyRequest = null
+}
+
+/**
+ * Opens the cast sheet and starts looking for screens.
+ *
+ * A scan is deliberately re-run on every open rather than reused: a television
+ * that was asleep a minute ago is awake now, and a remembered list is the one
+ * thing guaranteed to be stale exactly when someone is trying to cast.
+ */
+private fun PlayerScreenRuntime.openCastPicker() {
+    castErrorDeviceName = null
+    castErrorReason = null
+    showCastPicker = true
+    rescanCastDevices()
+}
+
+private fun PlayerScreenRuntime.rescanCastDevices() {
+    if (castScanning) return
+    scope.launch {
+        castScanning = true
+        castDevices = CastController.scan()
+        castScanning = false
+    }
+}
+
+/**
+ * Resolves a stream **for the renderer**, then pushes it.
+ *
+ * ⚠️ The URL this machine is playing cannot be sent to a television: it is bound
+ * to this machine's address and authenticates with a header, which a renderer
+ * never sends. So the stream is re-resolved through `/find` with the target's
+ * identity, and bsf hands back a URL bound to that address with its token in the
+ * query. The local player is paused only once that URL exists — pausing first
+ * would stop the film for a cast that may never happen — and resumed if the push
+ * fails, because a failed cast must not leave a dead player behind.
+ */
+private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
+    if (castProgressDeviceName != null) return
+    castErrorDeviceName = null
+    castErrorReason = null
+    val videoId = activeVideoId
+    if (videoId.isNullOrBlank()) {
+        castErrorDeviceName = device.name
+        castErrorReason = "nothing is loaded to cast"
+        return
+    }
+    castProgressDeviceName = device.name
+    scope.launch {
+        val streams = BoomioStreamResolver.resolveForCast(
+            videoId = videoId,
+            season = activeSeasonNumber,
+            episode = activeEpisodeNumber,
+            target = CastTarget.of(device),
+        )
+        val url = pickCastStream(streams, activeStreamTitle)?.url
+        if (url.isNullOrBlank()) {
+            castProgressDeviceName = null
+            castErrorDeviceName = device.name
+            castErrorReason = "no stream could be prepared for it"
+            return@launch
+        }
+        playerController?.pause()
+        val result = CastController.cast(device, url, title)
+        castProgressDeviceName = null
+        if (result.ok) {
+            showCastPicker = false
+        } else {
+            castErrorDeviceName = device.name
+            castErrorReason = result.reason ?: "the screen did not accept the stream"
+            playerController?.play()
+        }
+    }
+}
+
+/**
+ * Stops the renderer and takes playback back here.
+ *
+ * The local player is resumed whatever the stop reports: a renderer that cannot
+ * be reached is already not playing anything we control, and leaving this player
+ * paused would make a failed stop look like a hang.
+ */
+private fun PlayerScreenRuntime.stopCasting() {
+    if (castProgressDeviceName != null) return
+    scope.launch {
+        CastController.stop()
+        castErrorDeviceName = null
+        castErrorReason = null
+        showCastPicker = false
+        playerController?.play()
+    }
+}
+
+private fun PlayerScreenRuntime.dismissCastPicker() {
+    showCastPicker = false
+    castErrorDeviceName = null
+    castErrorReason = null
+}
+
+/**
+ * The stream to hand the renderer.
+ *
+ * `/find` re-ranks for the target, so "the first playable entry" is already the
+ * right answer; a title match only preserves what the person was watching when
+ * the same source survives the re-rank. A stream without a URL is skipped —
+ * a torrent hash cannot be fetched by a television.
+ */
+private fun pickCastStream(streams: List<StreamItem>, activeStreamTitle: String?): StreamItem? {
+    val playable = streams.filter { !it.url.isNullOrBlank() }
+    return playable.firstOrNull { it.title != null && it.title == activeStreamTitle }
+        ?: playable.firstOrNull()
 }
 
 /**
@@ -2030,4 +2155,19 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         onDismiss = { dismissMusicIdentify() },
         onSave = { saveIdentifiedSong() },
     )
+    if (showCastPicker) {
+        val activeCast by CastController.active.collectAsState()
+        CastPickerDialog(
+            devices = castDevices,
+            scanning = castScanning,
+            activeDeviceId = activeCast?.device?.id,
+            progressDeviceName = castProgressDeviceName,
+            errorDeviceName = castErrorDeviceName,
+            errorReason = castErrorReason,
+            onRescan = { rescanCastDevices() },
+            onSelect = { device -> castToDevice(device) },
+            onStop = { stopCasting() },
+            onDismiss = { dismissCastPicker() },
+        )
+    }
 }

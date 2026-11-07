@@ -2,6 +2,7 @@ package com.nuvio.app.features.boomio
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.httpGetText
+import com.nuvio.app.features.cast.CastTarget
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamParser
 import kotlinx.coroutines.CancellationException
@@ -57,6 +58,49 @@ object BoomioStreamResolver {
         }.getOrElse { error ->
             if (error is CancellationException) throw error
             log.w(error) { "boomio /find failed for $id" }
+            emptyList()
+        }
+    }
+
+    /**
+     * Resolves the stream list **for a cast target** rather than for this machine.
+     *
+     * ⚠️ A cast is a different `/find` call, not the same URL handed to a TV. The
+     * streams this machine is playing are bound to this machine's address and
+     * carry their credential in a header; a television sends no headers of its
+     * own, and bsf builds the list for whoever the request names. So these three
+     * `target*` parameters are the difference between "the renderer gets a 403"
+     * and "the renderer plays": bsf binds the stream to the target's address,
+     * drops the device binding and moves the stream token into the URL query.
+     *
+     * The list comes back in bsf's ranking *for that screen*, so a 1080p stick is
+     * never offered a 4K stream it would open and then fail to decode.
+     */
+    suspend fun resolveForCast(
+        videoId: String?,
+        season: Int?,
+        episode: Int?,
+        target: CastTarget,
+    ): List<StreamItem> {
+        if (!isEnabled()) return emptyList()
+        val id = videoId?.trim()?.takeIf { it.isNotBlank() } ?: return emptyList()
+        return runCatching {
+            val url = buildFindUrl(id, season, episode) ?: return emptyList()
+            val castUrl = if (url.contains('?')) {
+                "$url&${target.queryString()}"
+            } else {
+                "$url?${target.queryString()}"
+            }
+            val payload = httpGetText(castUrl)
+            StreamParser.parse(
+                payload = payload,
+                addonName = ADDON_NAME,
+                addonId = ADDON_ID,
+                addonLogo = null,
+            )
+        }.getOrElse { error ->
+            if (error is CancellationException) throw error
+            log.w(error) { "boomio /find for cast target ${target.ip} failed for $id" }
             emptyList()
         }
     }
