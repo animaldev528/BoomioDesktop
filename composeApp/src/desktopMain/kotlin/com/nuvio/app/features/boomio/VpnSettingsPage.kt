@@ -34,10 +34,14 @@ import nuvio.composeapp.generated.resources.device_setup_title
 import nuvio.composeapp.generated.resources.vpn_enroll_failed
 import nuvio.composeapp.generated.resources.vpn_enroll_pending
 import nuvio.composeapp.generated.resources.vpn_enroll_retry
+import nuvio.composeapp.generated.resources.vpn_enrollment_from_disk
+import nuvio.composeapp.generated.resources.vpn_enrollment_from_server
 import nuvio.composeapp.generated.resources.vpn_intro
 import nuvio.composeapp.generated.resources.vpn_label_address
 import nuvio.composeapp.generated.resources.vpn_label_device_name
 import nuvio.composeapp.generated.resources.vpn_label_endpoint
+import nuvio.composeapp.generated.resources.vpn_label_endpoint_assigned
+import nuvio.composeapp.generated.resources.vpn_label_endpoint_lan
 import nuvio.composeapp.generated.resources.vpn_label_overlay_address
 import nuvio.composeapp.generated.resources.vpn_label_server_key
 import nuvio.composeapp.generated.resources.vpn_not_enrolled_body
@@ -112,6 +116,31 @@ internal fun LazyListScope.vpnSettingsContent(isTablet: Boolean) {
                 .fillMaxWidth()
                 .padding(horizontal = if (isTablet) 20.dp else 16.dp),
         )
+    }
+
+    // ⚠️ Says where the numbers below came from, because two very different situations render
+    // identically in the tables: a device the box assigned a moment ago, and one holding an
+    // assignment restored from disk that the box no longer knows about. The tables cannot tell
+    // you which, and it is the first thing to know when a tunnel that used to work stops.
+    item {
+        val enrollment by OverlayEnrollmentController.state.collectAsStateWithLifecycle()
+        val ready = enrollment as? OverlayEnrollmentState.Ready
+        if (ready != null) {
+            Text(
+                text = stringResource(
+                    if (ready.fromCache) {
+                        Res.string.vpn_enrollment_from_disk
+                    } else {
+                        Res.string.vpn_enrollment_from_server
+                    },
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.nuvio.colors.textMuted,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = if (isTablet) 20.dp else 16.dp),
+            )
+        }
     }
 
     // ⚠️ "Not enrolled" is two different states and they need two different screens.
@@ -269,8 +298,16 @@ internal fun LazyListScope.vpnSettingsContent(isTablet: Boolean) {
         VpnDetailSection(
             title = stringResource(Res.string.vpn_section_peer),
             isTablet = isTablet,
-            rows = listOf(
-                stringResource(Res.string.vpn_label_endpoint) to BoomioConfig.overlayEndpoint,
+            // ⚠️ **"As assigned", not "Endpoint".** This is the server's own answer, and on a
+            // deployed box that answer is the *public* literal — so the card used to show a
+            // public IP while the tunnel was happily dialling the LAN plane listed above it,
+            // and the two rows both said "Endpoint". The row that mattered was the one the
+            // reader was least likely to trust.
+            rows = listOfNotNull(
+                stringResource(Res.string.vpn_label_endpoint_assigned) to BoomioConfig.overlayEndpoint,
+                BoomioConfig.overlayLanEndpoint
+                    .takeIf { it.isNotBlank() }
+                    ?.let { stringResource(Res.string.vpn_label_endpoint_lan) to it },
                 stringResource(Res.string.vpn_label_server_key) to BoomioConfig.overlayServerPubKey,
             ),
         )

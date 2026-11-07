@@ -2571,6 +2571,10 @@
     <string name="vpn_section_endpoint">Endpoint — as discovered</string>
     <string name="vpn_label_overlay_address">Address on the overlay</string>
     <string name="vpn_label_endpoint">Endpoint</string>
+    <string name="vpn_label_endpoint_assigned">Endpoint — as assigned</string>
+    <string name="vpn_label_endpoint_lan">Endpoint — on the LAN</string>
+    <string name="vpn_enrollment_from_server">This assignment came from the box just now.</string>
+    <string name="vpn_enrollment_from_disk">This assignment was restored from this machine’s last enrollment.</string>
     <string name="vpn_label_server_key">Server public key</string>
     <string name="vpn_value_unset">Not assigned</string>
     <string name="vpn_not_enrolled_title">Not enrolled yet</string>
