@@ -20,6 +20,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.deeplink.handleAppUrl
+import com.nuvio.app.core.device.DeviceCapabilityReporter
 import com.nuvio.app.core.diagnostics.SentryInitializer
 import com.nuvio.app.core.mtls.MtlsRegistration
 import com.nuvio.app.core.overlay.OverlayEnrollmentController
@@ -83,6 +84,10 @@ fun main(args: Array<String>) {
     // Inert until one lands: the certificate's CN *is* the assigned device name, so there is
     // nothing to mint for before then.
     MtlsRegistration.initialize()
+    // Arms the 30-minute hardware-capability heartbeat. Without it the dashboard shows this
+    // machine as "Awaiting Hardware Telemetry…" forever and flips it to Offline two hours after
+    // pairing, because bsm's only store of liveness for a self-reporting client is this call.
+    DeviceCapabilityReporter.initialize()
 
     // On Linux, initialize GTK BEFORE AWT/Compose/Skia to prevent GdkDisplayManager
     // type registration conflict (Skiko partially loads GDK without full GTK init).

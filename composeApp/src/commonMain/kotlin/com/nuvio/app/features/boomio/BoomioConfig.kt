@@ -96,3 +96,30 @@ val BoomioConfig.companionRestBaseUrl: String
     get() = companionBaseUrl.trimEnd('/')
         .replaceFirst("wss://", "https://")
         .replaceFirst("ws://", "http://")
+
+/**
+ * REST base for bsm, derived when the build did not bake one.
+ *
+ * ⚠️ **`BSM_BASE_URL` is not in the Windows test workflow's env**, so a build made
+ * the documented way ships with [BoomioConfig.bsmBaseUrl] blank — and everything
+ * bsm-fronted stays inert, including the capability report that makes the device
+ * show up with hardware telemetry. The deployment this app targets collapses every
+ * service onto one origin told apart by path (`…/bsf`, `…/bsc`, `…/bsm`), so the
+ * sibling of the companion URL *is* bsm. Deriving it is the difference between a
+ * working report on a build that names its media plane and one that silently is not.
+ *
+ * Deliberately conservative: a URL that is not a collapsed sibling returns blank,
+ * and the caller then does nothing, rather than posting to a plausible-but-wrong host.
+ */
+val BoomioConfig.bsmTelemetryBaseUrl: String
+    get() {
+        bsmBaseUrl.trim().trimEnd('/').takeIf { it.isNotBlank() }?.let { return it }
+        collapsedSibling(companionRestBaseUrl, "bsc", "bsm")?.let { return it }
+        return collapsedSibling(boomioBaseUrl.trim().trimEnd('/'), "bsf", "bsm").orEmpty()
+    }
+
+/** `https://host/bsc` + ("bsc" → "bsm") = `https://host/bsm`; anything else is null. */
+private fun collapsedSibling(url: String, service: String, sibling: String): String? {
+    if (!url.endsWith("/$service")) return null
+    return url.dropLast(service.length) + sibling
+}
