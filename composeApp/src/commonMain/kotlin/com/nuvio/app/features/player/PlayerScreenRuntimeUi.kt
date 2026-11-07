@@ -25,6 +25,10 @@ import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.music.MusicIdentifyClient
+import com.nuvio.app.features.music.MusicIdentifyOutcome
+import com.nuvio.app.features.music.MusicIdentifyRequest
+import com.nuvio.app.features.music.MusicIdentifyUiState
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.p2p.formatP2pMegabytes
@@ -717,6 +721,14 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                     )
                 }
             },
+            // Only offered when the box is paired: identify is authenticated with
+            // the companion session, and a button that always 401s is worse than
+            // no button.
+            onIdentifySongClick = if (MusicIdentifyClient.isAvailable()) {
+                { identifyCurrentSong() }
+            } else {
+                null
+            },
             onSubmitIntroClick = if (
                 isSeries &&
                 playerSettingsUiState.introSubmitEnabled &&
@@ -1225,6 +1237,90 @@ private fun PlayerScreenRuntime.submitIntroFromPlayerControls() {
             submitIntroStatusMessage = "Unable to submit timestamps."
         }
     }
+}
+
+/**
+ * Presses "name that song" on the moment the viewer is hearing.
+ *
+ * The whole request is derived from player state at the press, not from what
+ * the overlay later shows — identification is slow (7–10 s), the viewer can
+ * scrub during it, and the answer must describe the moment that was pressed.
+ * Playback is deliberately not paused: bsc reads the same URL the player is
+ * reading, so pausing here would change what it samples.
+ */
+private fun PlayerScreenRuntime.identifyCurrentSong() {
+    if (musicIdentifyState is MusicIdentifyUiState.Identifying) return
+    val request = MusicIdentifyRequest(
+        streamUrl = activeSourceUrl.takeIf { it.isNotBlank() },
+        positionMs = playbackSnapshot.positionMs.takeIf { it >= 0 },
+        audioTrack = selectedAudioOrdinal(audioTracks, selectedAudioIndex),
+        // Series ids are per-episode on this client; the cue index is keyed to
+        // the SHOW, so the parent is the right one to prefer. `imdbIdOf` accepts
+        // both and returns whatever looks like an IMDB id.
+        imdbId = MusicIdentifyClient.imdbIdOf(
+            if (isSeries) parentMetaId else videoId,
+            parentMetaId,
+            videoId,
+        ),
+        season = activeSeasonNumber,
+        episode = activeEpisodeNumber,
+    )
+    musicIdentifyRequest = request
+    musicIdentifyState = MusicIdentifyUiState.Identifying
+    scope.launch {
+        musicIdentifyState = when (val outcome = MusicIdentifyClient.identify(request)) {
+            is MusicIdentifyOutcome.Found -> MusicIdentifyUiState.Found(outcome.match)
+            MusicIdentifyOutcome.NoMatch -> MusicIdentifyUiState.Message(
+                MusicIdentifyUiState.Message.Kind.NO_MATCH,
+            )
+            MusicIdentifyOutcome.NoStream -> MusicIdentifyUiState.Message(
+                MusicIdentifyUiState.Message.Kind.NO_STREAM,
+            )
+            MusicIdentifyOutcome.NoContext -> MusicIdentifyUiState.Message(
+                MusicIdentifyUiState.Message.Kind.NO_CONTEXT,
+            )
+            MusicIdentifyOutcome.RateLimited -> MusicIdentifyUiState.Message(
+                MusicIdentifyUiState.Message.Kind.RATE_LIMITED,
+            )
+            is MusicIdentifyOutcome.Failed -> MusicIdentifyUiState.Message(
+                MusicIdentifyUiState.Message.Kind.FAILED,
+            )
+        }
+    }
+}
+
+private fun PlayerScreenRuntime.saveIdentifiedSong() {
+    val found = musicIdentifyState as? MusicIdentifyUiState.Found ?: return
+    val request = musicIdentifyRequest ?: return
+    if (found.saving || found.saved) return
+    musicIdentifyState = found.copy(saving = true)
+    scope.launch {
+        val result = MusicIdentifyClient.saveToLibrary(found.match, request)
+        musicIdentifyState = found.copy(saving = false, saved = result.isSuccess)
+    }
+}
+
+private fun PlayerScreenRuntime.dismissMusicIdentify() {
+    musicIdentifyState = MusicIdentifyUiState.Idle
+    musicIdentifyRequest = null
+}
+
+/**
+ * The ordinal bsc expects: the position of the track **among the audio tracks**,
+ * not the player's global track id.
+ *
+ * mpv numbers every track in the file (1 video, 2 audio, 3 subtitles), and the
+ * desktop's [selectedAudioIndex] carries that global id — which is then reported
+ * back by `track.reason = "unresolved"` at the server when it falls outside the
+ * audio-only list. Translating here is what makes the reported and chosen track
+ * agree on a file with subtitles or an unusual stream order.
+ */
+internal fun selectedAudioOrdinal(tracks: List<AudioTrack>, selectedIndex: Int): Int? {
+    if (tracks.isEmpty()) return null
+    val bySelection = tracks.indexOfFirst { it.index == selectedIndex }
+    if (bySelection >= 0) return bySelection
+    val flagged = tracks.indexOfFirst { it.isSelected }
+    return flagged.takeIf { it >= 0 }
 }
 
 private fun PlayerScreenRuntime.activeSubmitIntroContentKey(): String {
@@ -1928,5 +2024,10 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         subtitleTrack = subtitleTracks.firstOrNull { it.index == selectedSubtitleIndex }.takeIf { !useCustomSubtitles },
         addonSubtitle = selectedAddonSubtitle.takeIf { useCustomSubtitles },
         onDismiss = { showStreamInfo = false },
+    )
+    MusicIdentifyOverlay(
+        state = musicIdentifyState,
+        onDismiss = { dismissMusicIdentify() },
+        onSave = { saveIdentifiedSong() },
     )
 }

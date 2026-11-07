@@ -12,6 +12,8 @@ import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaDetailsUiState
 import com.nuvio.app.features.details.MetaScreenSettingsUiState
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.music.MusicIdentifyRequest
+import com.nuvio.app.features.music.MusicIdentifyUiState
 import com.nuvio.app.features.p2p.P2pSettingsUiState
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
@@ -247,6 +249,10 @@ internal class PlayerScreenRuntime(
     var showSubtitleModal by mutableStateOf(false)
     var showVideoSettingsModal by mutableStateOf(false)
     var showStreamInfo by mutableStateOf(false)
+    /** "Name that song" card state; [MusicIdentifyUiState.Idle] hides it. */
+    var musicIdentifyState by mutableStateOf<MusicIdentifyUiState>(MusicIdentifyUiState.Idle)
+    /** The context the press was made with, kept so "Add to library" saves the right moment. */
+    var musicIdentifyRequest by mutableStateOf<MusicIdentifyRequest?>(null)
     var streamMediaInfo by mutableStateOf(PlayerMediaInfo())
     var playbackEngineOverride by mutableStateOf<AndroidPlaybackEngine?>(null)
     var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())

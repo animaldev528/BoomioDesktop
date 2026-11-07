@@ -1664,6 +1664,18 @@
     <string name="meta_section_production_description">Studios and networks.</string>
     <string name="meta_section_production_title">Production</string>
     <string name="meta_section_trailers_description">Trailer rail and playback shortcuts.</string>
+    <string name="music_identify_action">Name that song</string>
+    <string name="music_identify_close">Close</string>
+    <string name="music_identify_failed">Couldn’t identify this. Try again.</string>
+    <string name="music_identify_listening">Listening to this moment…</string>
+    <string name="music_identify_no_context">This stream has no title information, so there is nothing to look the song up against.</string>
+    <string name="music_identify_no_match">No match. Try again where the music is clearer.</string>
+    <string name="music_identify_no_stream">The server can’t reach this stream, so it can’t listen to it.</string>
+    <string name="music_identify_rate_limited">You’ve reached today’s limit. Try again tomorrow.</string>
+    <string name="music_identify_save">Add to library</string>
+    <string name="music_identify_saved">Saved to library</string>
+    <string name="music_identify_saving">Saving…</string>
+    <string name="music_identify_unavailable">Pair this device with your Boomio box to identify songs.</string>
     <string name="network_back_online">Back online</string>
     <string name="network_cannot_reach_servers">Cannot reach servers</string>
     <string name="network_error_empty_response_body">Empty response body</string>
@@ -2000,7 +2012,7 @@
     <string name="library_sort_released_asc">Oldest released</string>
     <string name="library_sort_released_desc">Recently released</string>
     <string name="library_sort_title_asc">Title A–Z</string>
-    <string name="library_error_sort_failed">Couldn\'t load sort order. Showing provider order.</string>
+    <string name="library_error_sort_failed">Couldn’t load sort order. Showing provider order.</string>
     <string name="library_sort_title_desc">Title Z–A</string>
     <string name="library_sort_provider_order">Tracker order</string>
     <string name="library_source_cloud">Cloud</string>

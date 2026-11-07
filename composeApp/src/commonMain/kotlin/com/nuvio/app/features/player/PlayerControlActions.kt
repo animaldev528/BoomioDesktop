@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -99,6 +100,7 @@ internal fun PlayerControlActions(
     onResizeModeClick: () -> Unit,
     onVideoSettingsClick: (() -> Unit)?,
     onOpenInExternalPlayer: (() -> Unit)?,
+    onIdentifySongClick: (() -> Unit)?,
     onStreamInfoClick: () -> Unit,
     onSubmitIntroClick: (() -> Unit)?,
     onInteraction: () -> Unit,
@@ -148,6 +150,12 @@ internal fun PlayerControlActions(
             PlayerControlAction(
                 stringResource(Res.string.streams_open_external_player), it,
                 icon = Icons.AutoMirrored.Rounded.OpenInNew,
+            )
+        },
+        onIdentifySongClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.music_identify_action), it,
+                icon = Icons.Rounded.MusicNote,
             )
         },
         PlayerControlAction(
