@@ -92,20 +92,46 @@ jobs:
         # floating major tag, so `@v6` resolves to nothing and the job dies before it builds.
         uses: gradle/actions/setup-gradle@v6.4.0
 
-      - name: Set up Go and MinGW
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          # ⚠️ Not `go version` from the image: the runner carries Go 1.24.13 and `overlaywg/go.mod`
+          # declares `go 1.26.0`. Reading the version from the module keeps the two from drifting,
+          # and gets the right toolchain installed instead of relying on GOTOOLCHAIN to fetch it.
+          go-version-file: overlaywg/go.mod
+          cache: false
+
+      - name: Set up MinGW
         shell: pwsh
         run: |
-          # The runtime image already carries Go; pin it so a runner change is visible here.
-          go version
-          choco install mingw --no-progress -y
-          $mingwBin = (Get-ChildItem -Path "$env:ProgramData\chocolatey\lib\mingw\tools\install" -Filter "mingw64" -Directory -Recurse -ErrorAction SilentlyContinue |
-            Select-Object -First 1)
-          if (-not $mingwBin) { throw "MinGW-w64 was not installed where expected." }
-          $binPath = Join-Path $mingwBin.FullName "bin"
-          if (-not (Test-Path (Join-Path $binPath "gcc.exe"))) { throw "gcc.exe not found under $binPath" }
+          # ⚠️ Measured 2026-11-07: `choco install mingw` failed the whole run with
+          # "503 (Service Unavailable)" from the chocolatey community feed, before anything was
+          # built. The image already carries MSYS2, so prefer a gcc that is already on disk and
+          # only reach for a package manager when it is not.
+          $candidates = @(
+            "C:\msys64\mingw64\bin\gcc.exe",
+            "C:\ProgramData\mingw64\mingw64\bin\gcc.exe"
+          )
+          $gcc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $gcc) {
+            $msysBash = "C:\msys64\usr\bin\bash.exe"
+            if (Test-Path $msysBash) {
+              & $msysBash -lc "pacman -S --noconfirm --needed mingw-w64-x86_64-gcc" | Out-Host
+              if ($LASTEXITCODE -ne 0) { throw "pacman could not install mingw-w64-x86_64-gcc" }
+              $gcc = "C:\msys64\mingw64\bin\gcc.exe"
+            } else {
+              choco install mingw --no-progress -y
+              $gcc = Get-ChildItem "$env:ProgramData\chocolatey\lib\mingw\tools\install" -Filter gcc.exe -Recurse -ErrorAction SilentlyContinue |
+                Select-Object -First 1 -ExpandProperty FullName
+            }
+          }
+          if (-not $gcc -or -not (Test-Path $gcc)) { throw "no MinGW gcc was found on the image" }
+          $binPath = Split-Path $gcc
           "C:\Program Files\Git\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           $binPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "CC=$(Join-Path $binPath 'gcc.exe')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CC=$gcc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $gcc --version | Select-Object -First 1
+          go version
 
       - name: Build the overlay tunnel library
         shell: bash
