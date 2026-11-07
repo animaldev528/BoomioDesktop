@@ -159,11 +159,38 @@ jobs:
           done
           echo "all ten overlaywg exports present"
 
+      - name: Set up MSVC
+        # The player bridge is compiled with `cl`, which a Windows runner does not put on PATH:
+        # without this the Gradle step dies with "Process 'command 'cmd'' finished with non-zero
+        # exit value 1" and the real reason buried in the build script's echo.
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Fetch the WebView2 SDK
+        shell: pwsh
+        run: |
+          # `buildWindowsPlayerBridge` compiles against WebView2.h and links WebView2Loader.dll.lib.
+          # It looks for them under ~/.nuget/packages/microsoft.web.webview2/<version>, which only
+          # exists on a machine that has restored the package. There is no `nuget` on the image, so
+          # fetch the package straight from the feed; it is a zip.
+          $ver = "1.0.4314.35"
+          $zip = Join-Path $env:RUNNER_TEMP "webview2.zip"
+          $dir = Join-Path $env:RUNNER_TEMP "webview2"
+          Invoke-WebRequest "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/$ver" -OutFile $zip -UseBasicParsing
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          $header = Join-Path $dir "build/native/include/WebView2.h"
+          $implib = Join-Path $dir "build/native/x64/WebView2Loader.dll.lib"
+          if (-not (Test-Path $header)) { throw "WebView2.h is missing from the package at $header" }
+          if (-not (Test-Path $implib)) { throw "WebView2Loader.dll.lib is missing from the package at $implib" }
+          "WEBVIEW2_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "WebView2 $ver at $dir"
+
       - name: Build distributable
         shell: pwsh
         run: |
           $task = if ("${{ inputs.package_as }}" -eq "msi") { ":composeApp:packageReleaseMsi" } else { ":composeApp:createReleaseDistributable" }
-          & .\gradlew.bat $task "-Pcompose.desktop.packaging.checkJdkVendor=false" --stacktrace
+          & .\gradlew.bat $task "-Pcompose.desktop.packaging.checkJdkVendor=false" "-Pnuvio.webview2.dir=$env:WEBVIEW2_DIR" --stacktrace
           if ($LASTEXITCODE -ne 0) { throw "Gradle failed with exit code $LASTEXITCODE" }
 
       - name: Collect artifact
