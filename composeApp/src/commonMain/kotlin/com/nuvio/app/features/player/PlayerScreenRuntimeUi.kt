@@ -289,6 +289,11 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         videoSettingsLabel = stringResource(Res.string.player_action_video_settings),
         tapToUnlockLabel = stringResource(Res.string.compose_player_tap_to_unlock),
         pipLabel = stringResource(Res.string.compose_player_picture_in_picture),
+        // The desktop player UI is HTML, not Compose: it only draws the cast
+        // button when told to, and it needs both a renderer-capable build and a
+        // boomio origin (a cast re-resolves the stream through /find).
+        castLabel = stringResource(Res.string.cast_action),
+        showCast = CastController.isAvailable() && BoomioStreamResolver.isEnabled(),
         pipPlaceholderTitle = stringResource(Res.string.compose_player_pip_placeholder_title),
         pipRestoreLabel = stringResource(Res.string.compose_player_pip_restore),
         pipWindowTitle = stringResource(Res.string.compose_player_pip_window_title),
@@ -906,6 +911,12 @@ private fun PlayerScreenRuntime.handlePlayerControlsAction(action: PlayerControl
         }
         PlayerControlsAction.PictureInPicture -> {
             togglePlayerPictureInPicture()
+        }
+        PlayerControlsAction.Cast -> {
+            openCastPicker()
+            // The picker is Compose drawn over the native video surface; make
+            // sure the chrome did not fade out from under the pointer.
+            controlsVisible = true
         }
         PlayerControlsAction.DoubleTapSeekBack -> {
             prepareDoubleTapSeekForNativeFallback(PlayerSeekDirection.Backward)

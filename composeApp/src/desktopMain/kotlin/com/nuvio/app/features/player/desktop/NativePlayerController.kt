@@ -1224,6 +1224,7 @@ private fun String.toPlayerControlsAction(): PlayerControlsAction? =
         "external" -> PlayerControlsAction.OpenExternalPlayer
         "submitIntro" -> PlayerControlsAction.SubmitIntro
         "videoSettings" -> PlayerControlsAction.VideoSettings
+        "cast" -> PlayerControlsAction.Cast
         else -> null
     }
 
@@ -1516,6 +1517,10 @@ private fun PlayerControlsState.toControlsJson(isFullscreen: Boolean): String =
         appendJsonField("showEpisodes", showEpisodes)
         append(',')
         appendJsonField("showExternalPlayer", showExternalPlayer)
+        append(',')
+        appendJsonField("showCast", showCast)
+        append(',')
+        appendJsonField("castLabel", castLabel)
         append(',')
         appendJsonField("durationMs", durationMs)
         append(',')

@@ -72,6 +72,7 @@ enum class PlayerControlsAction {
     SubmitIntro,
     LockToggle,
     VideoSettings,
+    Cast,
     DoubleTapSeekBack,
     DoubleTapSeekForward,
 }
@@ -106,6 +107,8 @@ data class PlayerControlsState(
     val videoSettingsLabel: String = "Video settings",
     val tapToUnlockLabel: String = "Tap to unlock",
     val pipLabel: String = "",
+    /** Tooltip/label of the cast button drawn by the desktop player UI. */
+    val castLabel: String = "",
     val pipPlaceholderTitle: String = "",
     val pipRestoreLabel: String = "",
     val pipWindowTitle: String = "",
@@ -217,6 +220,8 @@ data class PlayerControlsState(
     val showSources: Boolean = false,
     val showEpisodes: Boolean = false,
     val showExternalPlayer: Boolean = false,
+    /** The desktop player UI only draws its cast button when this is true. */
+    val showCast: Boolean = false,
     val durationMs: Long = 0L,
     val positionMs: Long = 0L,
     val sourceIsLoading: Boolean = false,

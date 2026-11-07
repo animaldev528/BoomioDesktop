@@ -41,6 +41,7 @@ const sourcesLabel = document.getElementById("sourcesLabel");
 const episodesLabel = document.getElementById("episodesLabel");
 const submitIntroButton = document.getElementById("submitIntroButton");
 const videoSettingsButton = document.getElementById("videoSettingsButton");
+const castButton = document.getElementById("castButton");
 const backButton = document.getElementById("backButton");
 const openingOverlay = document.getElementById("openingOverlay");
 const openingArtwork = document.getElementById("openingArtwork");
@@ -2436,6 +2437,12 @@ const renderChrome = () => {
 
   setVisible(submitIntroButton, Boolean(state.showSubmitIntro));
   setVisible(videoSettingsButton, Boolean(state.showVideoSettings));
+  if (castButton) {
+    const castLabel = String(state.castLabel || "").trim();
+    castButton.setAttribute("aria-label", castLabel);
+    castButton.setAttribute("title", castLabel);
+    setVisible(castButton, Boolean(state.showCast));
+  }
   setVisible(sourcesButton, Boolean(state.showSources));
   setVisible(episodesButton, Boolean(state.showEpisodes));
   syncActionFocusState();
