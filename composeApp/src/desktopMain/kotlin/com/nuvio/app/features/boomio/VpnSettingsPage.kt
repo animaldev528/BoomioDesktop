@@ -29,6 +29,8 @@ import com.nuvio.app.features.settings.SettingsGroupDivider
 import com.nuvio.app.features.settings.SettingsSection
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.device_setup_description
+import nuvio.composeapp.generated.resources.device_setup_title
 import nuvio.composeapp.generated.resources.vpn_enroll_failed
 import nuvio.composeapp.generated.resources.vpn_enroll_pending
 import nuvio.composeapp.generated.resources.vpn_enroll_retry
@@ -112,20 +114,55 @@ internal fun LazyListScope.vpnSettingsContent(isTablet: Boolean) {
         )
     }
 
-    // ⚠️ The test lives *inside* the item, not in the builder above it. `overlayDeviceName` is a
-    // plain `var` with no flow behind it — enrollment writes it — so a read while the list is being
-    // built would be a value nothing observes, and a device that enrolled with this page open would
-    // keep showing "not enrolled" until the row was recreated. Read during composition, the section
+    // ⚠️ "Not enrolled" is two different states and they need two different screens.
+    //
+    // No boomio session at all: there is nothing to ask *as*, so the retry below would answer
+    // `Unavailable` forever. That device gets the pairing card — the same one first-run setup
+    // shows — because this page is the only place left that can reach it. Without this, a machine
+    // that signed in before it paired can never pair: setup is only routed to from the
+    // unauthenticated branch of `AppGate`, and signing in (or continuing without an account, which
+    // creates an anonymous one) goes straight past it.
+    //
+    // Paired but not yet assigned: the retry, which asks again.
+    //
+    // The test lives *inside* the item, not in the builder above it. `overlayDeviceName` is a plain
+    // `var` with no flow behind it — enrollment writes it — so a read while the list is being built
+    // would be a value nothing observes, and a device that enrolled with this page open would keep
+    // showing "not enrolled" until the row was recreated. Read during composition, the section
     // disappears the moment the assignment lands.
     item {
         val enrolled = BoomioConfig.overlayDeviceName.trim().isNotEmpty()
+        val session by BoomioSessionRepository.session.collectAsStateWithLifecycle()
         if (!enrolled) {
-            SettingsSection(
-                title = stringResource(Res.string.vpn_not_enrolled_title),
-                isTablet = isTablet,
-            ) {
-                SettingsGroup(isTablet = isTablet) {
-                    EnrollmentStatus(isTablet = isTablet)
+            if (session == null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = if (isTablet) 20.dp else 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    val linkState by BoomioSessionRepository.linkState.collectAsStateWithLifecycle()
+                    UnlinkedCard(
+                        linkState = linkState,
+                        title = stringResource(Res.string.device_setup_title),
+                        description = stringResource(Res.string.device_setup_description),
+                    )
+                    // The card's Connect dials a companion URL it cannot discover, so the row that
+                    // supplies one belongs with it rather than in the section below.
+                    OverlayEndpointStatusRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        showUnavailable = true,
+                        alwaysOfferManual = true,
+                    )
+                }
+            } else {
+                SettingsSection(
+                    title = stringResource(Res.string.vpn_not_enrolled_title),
+                    isTablet = isTablet,
+                ) {
+                    SettingsGroup(isTablet = isTablet) {
+                        EnrollmentStatus(isTablet = isTablet)
+                    }
                 }
             }
         }
