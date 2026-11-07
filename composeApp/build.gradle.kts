@@ -1032,7 +1032,12 @@ tasks.withType<Jar>().configureEach {
         // library mints, and the tunnel, the relay and the certificate all hang off enrollment.
         // Found at runtime by OverlayWgLibrary's classpath fallback, which extracts it from
         // `native/windows` into the app cache — the same route the player bridge takes.
-        from(layout.projectDirectory.dir("overlaywg/build/windows-amd64")) {
+        // `rootProject`, not `layout.projectDirectory`: this script's project directory is
+        // `composeApp/`, and `overlaywg/` sits beside it at the repository root. Resolving it
+        // against this project silently found nothing, which in a `from { include }` is a no-op
+        // rather than an error — the jar simply had no library in it and every check downstream
+        // had to guess why.
+        from(rootProject.layout.projectDirectory.dir("overlaywg/build/windows-amd64")) {
             include("overlaywg.dll")
             into("native/windows")
         }

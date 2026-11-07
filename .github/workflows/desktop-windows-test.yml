@@ -212,11 +212,22 @@ jobs:
           } else {
             $appDir = Join-Path $out "app"
             if (-not (Test-Path $appDir)) { throw "No app image was produced at $appDir" }
-            # The DLL has to be inside the image, not merely built: the app resolves it from the
-            # jar's `native/windows` entry on first use.
-            $dll = Get-ChildItem -Path $appDir -Filter "overlaywg.dll" -Recurse | Select-Object -First 1
-            if (-not $dll) {
-              throw "overlaywg.dll is not in the app image - the jar did not pick up overlaywg/build/windows-amd64."
+            # The DLL ships *inside the jar*, under native/windows — that is the entry
+            # OverlayWgLibrary extracts on first use. So look in the archive, not for a loose file
+            # beside it, which is what the first version of this check did.
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $found = $false
+            foreach ($jar in Get-ChildItem -Path $appDir -Filter *.jar -Recurse) {
+              $zip = [System.IO.Compression.ZipFile]::OpenRead($jar.FullName)
+              try {
+                if ($zip.Entries | Where-Object { $_.FullName -eq "native/windows/overlaywg.dll" }) {
+                  $found = $true
+                  break
+                }
+              } finally { $zip.Dispose() }
+            }
+            if (-not $found) {
+              throw "native/windows/overlaywg.dll is not in any jar in the app image - the jar did not pick up overlaywg/build/windows-amd64."
             }
             $zip = Join-Path $env:RUNNER_TEMP "nuvio-windows-x64-$stamp.zip"
             Compress-Archive -Path (Join-Path $appDir "*") -DestinationPath $zip -Force
