@@ -355,6 +355,40 @@ class OverlayEnrollmentTest {
     }
 
     @Test
+    fun `a ready status carries both planes, not just the server's own endpoint`() {
+        // ⚠️ The regression this pins. A deployed box sends `endpoint` as the PUBLIC literal and
+        // publishes the LAN one beside it; this client read only the first, so a machine on the
+        // server's own network dialled a NAT hole it could not reach and the tunnel never came
+        // up. Dropping either plane here sends it straight back to that.
+        val poll = decodeEnrollStatus(
+            """
+            {"status":"ready","name":"device-x","address":"10.77.0.7",
+             "server_pubkey":"kqZZdZcbAA=",
+             "endpoint":"209.107.100.169:51820",
+             "lan_endpoint":"192.168.68.65:51820",
+             "wan_endpoint":"209.107.100.169:51820",
+             "overlay_cidr":"10.77.0.0/24","mtu":1420}
+            """.trimIndent(),
+        )
+
+        val ready = assertIs<EnrollPoll.Ready>(poll)
+        assertEquals("209.107.100.169:51820", ready.assignment.endpoint)
+        assertEquals("192.168.68.65:51820", ready.assignment.lanEndpoint)
+        assertEquals("209.107.100.169:51820", ready.assignment.wanEndpoint)
+    }
+
+    @Test
+    fun `plane fields are optional, so an older server still decodes`() {
+        val poll = decodeEnrollStatus(
+            """{"status":"ready","address":"10.77.0.7","server_pubkey":"kqZZdZcbAA=","endpoint":"e:1"}""",
+        )
+
+        val ready = assertIs<EnrollPoll.Ready>(poll)
+        assertEquals("", ready.assignment.lanEndpoint)
+        assertEquals("", ready.assignment.wanEndpoint)
+    }
+
+    @Test
     fun `a ready status without a name still decodes`() {
         // Tolerated rather than refused: the name gates certificate registration, not the tunnel,
         // so an older server that does not derive names must not stop a device getting an address.

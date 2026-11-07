@@ -31,6 +31,18 @@ enum class OverlayEndpointSource {
     MANUAL,
 
     /**
+     * The planes enrollment assigned: `lan_endpoint`, `wan_endpoint` and the server's own
+     * `endpoint`, in that order, with the gate choosing between them.
+     *
+     * ⚠️ **Distinguishable from [MANUAL] in a support log on purpose.** The two used to be one
+     * value and that hid a real failure: a device reported as dialling its "configured" endpoint
+     * was dialling a WAN literal the server had assigned, and nothing in the log said so — the
+     * same string a person could have typed. Which plane won is the first question asked of a
+     * tunnel that will not come up, so it is answered where it is decided.
+     */
+    ASSIGNMENT,
+
+    /**
      * The addresses the discovery record publishes, tried **only after every rung has missed the
      * gate**.
      *

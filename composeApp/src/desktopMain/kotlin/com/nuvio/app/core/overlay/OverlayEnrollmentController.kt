@@ -52,6 +52,12 @@ internal object OverlayEnrollmentController {
     private const val KEY_ADDRESS = "address"
     private const val KEY_SERVER_PUBKEY = "server_pubkey"
     private const val KEY_ENDPOINT = "endpoint"
+    // ⚠️ Cached, not re-derived from `endpoint`: a cache restored without the LAN plane puts a
+    // machine back on the WAN literal at every launch, which is the failure this pair exists to
+    // avoid -- and the restore path is the *common* one, since enrollment on a healthy box is
+    // served from here rather than from a fresh network round trip.
+    private const val KEY_LAN_ENDPOINT = "lan_endpoint"
+    private const val KEY_WAN_ENDPOINT = "wan_endpoint"
     private const val KEY_OVERLAY_CIDR = "overlay_cidr"
     private const val KEY_MTU = "mtu"
     private const val KEY_DEVICE_NAME = "device_name"
@@ -144,6 +150,12 @@ internal object OverlayEnrollmentController {
     private fun applyAssignment(assignment: OverlayAssignment) {
         BoomioConfig.overlayLocalCidr = assignment.localCidr
         BoomioConfig.overlayEndpoint = assignment.endpoint
+        // The planes are written *beside* the endpoint, not instead of it: which one the tunnel
+        // actually dials is the ladder's decision, and it is made by probing them. Overwriting
+        // `overlayEndpoint` with the LAN literal here would throw away the server's own answer and
+        // leave nothing to fall back to when the machine leaves the house.
+        BoomioConfig.overlayLanEndpoint = assignment.lanEndpoint
+        BoomioConfig.overlayWanEndpoint = assignment.wanEndpoint
         BoomioConfig.overlayServerPubKey = assignment.serverPublicKeyBase64
         BoomioConfig.overlayDeviceName = assignment.deviceName
 
@@ -182,6 +194,8 @@ internal object OverlayEnrollmentController {
                 overlayCidr = store.getString(KEY_OVERLAY_CIDR) ?: OVERLAY_ENROLL_DEFAULT_CIDR,
                 mtu = store.getInt(KEY_MTU) ?: OVERLAY_ENROLL_DEFAULT_MTU,
                 deviceName = store.getString(KEY_DEVICE_NAME).orEmpty(),
+                lanEndpoint = store.getString(KEY_LAN_ENDPOINT).orEmpty(),
+                wanEndpoint = store.getString(KEY_WAN_ENDPOINT).orEmpty(),
             ),
             issuedForPublicKeyBase64 = issuedFor,
         )
@@ -191,6 +205,8 @@ internal object OverlayEnrollmentController {
         store.putString(KEY_ADDRESS, cached.assignment.address)
         store.putString(KEY_SERVER_PUBKEY, cached.assignment.serverPublicKeyBase64)
         store.putString(KEY_ENDPOINT, cached.assignment.endpoint)
+        store.putString(KEY_LAN_ENDPOINT, cached.assignment.lanEndpoint)
+        store.putString(KEY_WAN_ENDPOINT, cached.assignment.wanEndpoint)
         store.putString(KEY_OVERLAY_CIDR, cached.assignment.overlayCidr)
         store.putInt(KEY_MTU, cached.assignment.mtu)
         store.putString(KEY_ISSUED_FOR, cached.issuedForPublicKeyBase64)

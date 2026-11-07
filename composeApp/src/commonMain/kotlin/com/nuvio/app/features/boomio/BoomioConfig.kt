@@ -57,6 +57,25 @@ object BoomioConfig {
     /** Where the tunnel's UDP goes, in the clear — the server's public endpoint. */
     var overlayEndpoint: String = ""
 
+    /**
+     * The server as seen **from its own network** — the `lan=` half of the tuple its discovery
+     * record teaches, carried in the enrollment reply.
+     *
+     * ⚠️ **Preferred over [overlayEndpoint] whenever it answers, and that is a fix rather than a
+     * nicety.** A client sitting on the same LAN as the server usually cannot reach the server's
+     * *public* address at all: consumer routers do not hairpin NAT, so a WAN literal dialled from
+     * inside the house is a UDP hole that swallows every handshake. The tunnel then fails as
+     * though it were misconfigured while the server is one ARP away. The box does not choose for
+     * us — it publishes both planes — so the choice belongs to the reachability gate.
+     *
+     * Blank on a server that publishes no LAN plane, which is the pre-split case; the ladder
+     * then has only [overlayEndpoint], exactly as before.
+     */
+    var overlayLanEndpoint: String = ""
+
+    /** The `wan=` half of the same tuple: the public literal, from STUN. */
+    var overlayWanEndpoint: String = ""
+
     /** The server's WireGuard public key, base64, as the enrollment assigned it. */
     var overlayServerPubKey: String = ""
 

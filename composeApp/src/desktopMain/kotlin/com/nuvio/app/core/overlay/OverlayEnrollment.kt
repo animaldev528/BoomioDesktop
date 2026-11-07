@@ -65,6 +65,22 @@ internal data class OverlayAssignment(
      * device", which is the pre-mTLS case and gates certificate registration off.
      */
     val deviceName: String = "",
+    /**
+     * The same server, from its own network — `lan_endpoint` in the enroll reply, and the `lan=`
+     * half of the tuple the discovery record teaches.
+     *
+     * ⚠️ **Not an alternative for [endpoint]; a plane.** [endpoint] is what the server thinks a
+     * client should dial, and on a deployed box that is the public literal, which a machine on
+     * the server's own LAN generally cannot reach because consumer routers do not hairpin NAT.
+     * The two are both true at once and only the client can tell which one it can reach, so both
+     * are carried and the reachability gate chooses.
+     *
+     * Blank when the server publishes no LAN plane (or an older server that never sent it),
+     * which degrades to the pre-split behaviour rather than failing.
+     */
+    val lanEndpoint: String = "",
+    /** The `wan=` half. Usually equal to [endpoint]; carried because a server may pin them apart. */
+    val wanEndpoint: String = "",
 ) {
     /** The `Address =` line's form. */
     val localCidr: String get() = "$address/32"
@@ -327,6 +343,11 @@ internal data class EnrollStatusDto(
     val address: String? = null,
     @SerialName("server_pubkey") val serverPubkey: String? = null,
     val endpoint: String? = null,
+    // The other two planes, which the route sends beside `endpoint` and which used to be dropped
+    // on the floor here. `endpoint` is the server's own dial target and on a deployed box it is
+    // the WAN literal, so a client at home needs `lan_endpoint` or it dials a NAT hole.
+    @SerialName("lan_endpoint") val lanEndpoint: String? = null,
+    @SerialName("wan_endpoint") val wanEndpoint: String? = null,
     @SerialName("overlay_cidr") val overlayCidr: String? = null,
     val mtu: Int? = null,
     val reason: String? = null,
@@ -377,6 +398,8 @@ internal fun decodeEnrollStatus(body: String): EnrollPoll {
                         // Blank (an older server, or one that does not derive names) is tolerated
                         // and registers nothing: see `planCertificate`.
                         deviceName = dto.name.orEmpty(),
+                        lanEndpoint = dto.lanEndpoint.orEmpty(),
+                        wanEndpoint = dto.wanEndpoint.orEmpty(),
                     ),
                 )
             }

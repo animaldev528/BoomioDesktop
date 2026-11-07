@@ -39,6 +39,15 @@ private const val TAG = "OverlayEndpointDiscovery"
  * enrolled reports [OverlayEndpointStatus.NeedsManual] naming the address it is missing,
  * rather than silently sitting in `Searching` as though a browse were still running.
  *
+ * ⚠️ **But rung 3 is not the single address this comment used to describe, and that was a bug.**
+ * Enrollment assigns three: the server's own `endpoint`, plus the `lan_endpoint`/`wan_endpoint`
+ * that mirror the `lan=`/`wan=` tuple its discovery record teaches. Only the first was read, and
+ * on a deployed box that is the *public* literal — which a machine on the same LAN as the server
+ * usually cannot reach, because consumer routers do not hairpin NAT. A desktop at home therefore
+ * failed to reach a server inches away, with the working address sitting in the reply it had just
+ * received. All three are now carried in order and the gate picks the plane; see
+ * [rung3Candidates].
+ *
  * ── What is preserved verbatim ───────────────────────────────────────────────
  * The gate, the preference-not-veto rule, the miss retry, and the write-through to
  * [BoomioConfig] are the mobile ladder's own decisions, and they are kept because they were
@@ -159,7 +168,7 @@ internal object OverlayEndpointDiscovery {
 
         OverlayEndpointState.update(OverlayEndpointStatus.Searching)
 
-        val candidates = listOfNotNull(rung3Manual())
+        val candidates = rung3Candidates()
 
         // ⚠️ The gate is a blocking connect, so it is pinned to IO explicitly. `resolve()` is
         // reachable from a settings screen, and an un-dispatched `Socket.connect` there would
@@ -182,13 +191,21 @@ internal object OverlayEndpointDiscovery {
             )
         }
 
-        // ⚠️ **Nothing answered the gate, so the first candidate is taken anyway** — and this is
-        // the one place the ladder deliberately overrules its own probe. Mobile learned this the
-        // hard way: a liveness probe once timed out on a LAN the app's own client was reaching in
+        // ⚠️ **Nothing answered the gate, so a candidate is taken anyway** — and this is the one
+        // place the ladder deliberately overrules its own probe. Mobile learned this the hard
+        // way: a liveness probe once timed out on a LAN the app's own client was reaching in
         // 2.6 ms, and because the candidate was *discarded* rather than merely deprioritised,
         // discovery went silently dead everywhere. The gate's job is to choose between
         // candidates; it has no business throwing the last one away.
-        val fallback = candidates.first()
+        //
+        // ⚠️ **It is the *last*, not the first, and the candidates are ordered LAN-first.** With
+        // one candidate the two are the same thing and this is the rule mobile wrote. With the
+        // per-plane tuple it is not: the LAN candidate failing its probe is the single most
+        // informative datum available — it usually means this machine is *not* on the server's
+        // network — so falling back to it would aim a tunnel at an address the probe just
+        // rejected on the one hypothesis that probe is best at testing. The tail of the list is
+        // the server's own answer, which is where this ladder stood before the planes existed.
+        val fallback = candidates.last()
         OverlayLog.w(TAG, "No candidate answered the gate on $EDGE_PORT; taking ${fallback.authority} anyway")
         accept(fallback)
     }
@@ -198,33 +215,60 @@ internal object OverlayEndpointDiscovery {
     // ---------------------------------------------------------------------------------------
 
     /**
-     * The configured address, which on desktop is what enrollment assigned.
+     * The addresses this device has been told about, in dial order: **LAN plane first**, then the
+     * WAN plane, then the server's own `endpoint`.
      *
-     * ⚠️ A *literal* never goes through the resolver: it is dialled as written, which is the
-     * whole point of the no-LAN-DNS case, and asking a resolver about it would be one DNS call
-     * this rung must not make.
+     * ⚠️ **These are candidate *planes*, not alternative endpoints, and the order is the whole
+     * fix.** `endpoint` in a real box's record is the public literal, and a machine on the
+     * server's own network generally cannot reach it — consumer routers do not hairpin NAT — so
+     * dialling it produced a tunnel that failed a handshake against a server four milliseconds
+     * away. The server publishes the LAN plane beside it (`lan_endpoint`, the same value its
+     * discovery record carries as `lan=`), and this used to drop it on the floor.
      *
-     * Deliberately **does not gate** — the gate is [resolve]'s, applied across candidates at
-     * once so it can choose between them.
+     * The ordering is mobile's, arrived at without a TXT query: rung 2 on Android reads `lan=`
+     * and `wan=` off the record and prefers `lan` on the server's network. The enroll reply
+     * carries the same two literals, so the same decision is available here for free — the
+     * record's *policy* without porting a DNS client to get the record's *transport*.
+     *
+     * ⚠️ A *literal* none the less goes through no resolver beyond this call's own: rung 3 is the
+     * no-LAN-DNS case, and each candidate is resolved here, once, to the literal the tunnel is
+     * handed verbatim. Duplicates are dropped **after** resolution, so a v1 record whose
+     * `endpoint` is `boomio.duckdns.org:51820` (whose `A` record is the LAN literal) collapses
+     * onto the LAN candidate rather than being dialled twice.
+     *
+     * Deliberately **does not gate** — the gate is [resolve]'s, applied across candidates so it
+     * can choose between them.
      */
-    private suspend fun rung3Manual(): OverlayEndpoint? {
-        val raw = BoomioConfig.overlayEndpoint.trim()
-        if (raw.isEmpty()) return null
+    private suspend fun rung3Candidates(): List<OverlayEndpoint> {
         val key = validServerKeyOrNull(BoomioConfig.overlayServerPubKey)
         if (key == null) {
-            OverlayLog.d(TAG, "Rung 3: an endpoint is configured but no usable server key is")
-            return null
+            if (BoomioConfig.overlayEndpoint.trim().isNotEmpty()) {
+                OverlayLog.d(TAG, "Rung 3: an endpoint is configured but no usable server key is")
+            }
+            return emptyList()
         }
-        val authority = parseEndpointAuthority(raw, DEFAULT_WG_PORT) ?: return null
-        val (typedHost, typedPort) = authority
 
-        val address = resolveHost(typedHost, MANUAL_RESOLVE_BUDGET_MS) ?: return null
-        return OverlayEndpoint(
-            host = address.hostAddress ?: return null,
-            port = typedPort,
-            serverPublicKeyBase64 = key,
-            source = OverlayEndpointSource.MANUAL,
-        )
+        val seen = mutableSetOf<String>()
+        val out = ArrayList<OverlayEndpoint>(3)
+        // Order is the policy: LAN, WAN, then whatever the server called "the endpoint".
+        for (raw in listOf(
+            BoomioConfig.overlayLanEndpoint,
+            BoomioConfig.overlayWanEndpoint,
+            BoomioConfig.overlayEndpoint,
+        )) {
+            val text = raw.trim()
+            if (text.isEmpty()) continue
+            val (namedHost, port) = parseEndpointAuthority(text, DEFAULT_WG_PORT) ?: continue
+            val literal = resolveHost(namedHost, MANUAL_RESOLVE_BUDGET_MS)?.hostAddress ?: continue
+            if (!seen.add("$literal:$port")) continue
+            out += OverlayEndpoint(
+                host = literal,
+                port = port,
+                serverPublicKeyBase64 = key,
+                source = OverlayEndpointSource.ASSIGNMENT,
+            )
+        }
+        return out
     }
 
     private fun accept(endpoint: OverlayEndpoint): OverlayEndpointStatus {
@@ -315,6 +359,12 @@ internal object OverlayEndpointDiscovery {
             )
         }
         BoomioConfig.overlayEndpoint = rawAuthority.trim()
+        // ⚠️ **A human's answer replaces the whole candidate set, planes included.** Leaving them
+        // set would put the LAN plane *ahead* of the address they just typed and let the gate
+        // hand them back the one they were trying to get away from — the one thing a manual
+        // entry exists to override.
+        BoomioConfig.overlayLanEndpoint = ""
+        BoomioConfig.overlayWanEndpoint = ""
         BoomioConfig.overlayServerPubKey = key
         return resolve()
     }
