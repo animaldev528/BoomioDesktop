@@ -79,6 +79,12 @@ const subtitleModal = document.getElementById("subtitleModal");
 const speedModal = document.getElementById("speedModal");
 const speedOptionList = document.getElementById("speedOptionList");
 const speedPanelTitle = document.getElementById("speedPanelTitle");
+const castModal = document.getElementById("castModal");
+const castPanelTitle = document.getElementById("castPanelTitle");
+const castDeviceList = document.getElementById("castDeviceList");
+const castStatus = document.getElementById("castStatus");
+const castRescanButton = document.getElementById("castRescanButton");
+const castStopButton = document.getElementById("castStopButton");
 const audioPanelTitle = document.getElementById("audioPanelTitle");
 const audioTrackList = document.getElementById("audioTrackList");
 const subtitleTrackList = document.getElementById("subtitleTrackList");
@@ -943,6 +949,7 @@ const modalByName = {
   audio: audioModal,
   subtitles: subtitleModal,
   speed: speedModal,
+  cast: castModal,
   sources: sourceModal,
   episodes: episodesModal,
   submitIntro: submitIntroModal,
@@ -1099,6 +1106,55 @@ const renderSpeedOptionList = () => {
     row.appendChild(labelElement);
     row.appendChild(buildCheckIcon());
     speedOptionList.appendChild(row);
+  });
+};
+
+const renderCastModal = () => {
+  if (!castModal) return;
+  if (castPanelTitle) castPanelTitle.textContent = state.castPanelTitle || "Cast";
+  if (castRescanButton) {
+    castRescanButton.textContent = state.castRescanLabel || "Rescan";
+    castRescanButton.disabled = Boolean(state.castScanning);
+  }
+  if (castStopButton) {
+    castStopButton.textContent = state.castStopLabel || "Stop casting";
+    castStopButton.hidden = !String(state.castActiveDeviceId || "");
+  }
+  if (castStatus) {
+    const status = String(state.castStatusMessage || "").trim();
+    castStatus.textContent = status;
+    castStatus.hidden = !status;
+  }
+  if (!castDeviceList) return;
+  castDeviceList.textContent = "";
+  const devices = Array.isArray(state.castDevices) ? state.castDevices : [];
+  if (devices.length === 0) {
+    appendEmptyTrackState(
+      castDeviceList,
+      state.castScanning
+        ? state.castScanningLabel || "Looking for screens…"
+        : state.castEmptyLabel || "No screens found",
+    );
+    return;
+  }
+  devices.forEach((device, index) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `track-row${device.isActive ? " selected" : ""}`;
+    row.addEventListener("click", event => {
+      event.stopPropagation();
+      send("castSelect", index);
+      window.setTimeout(closePlayerModal, 120);
+    });
+    const labelElement = document.createElement("span");
+    labelElement.className = "track-label";
+    const protocol = String(device.protocol || "").toUpperCase();
+    labelElement.textContent = protocol
+      ? `${device.label || ""} · ${protocol}`
+      : String(device.label || "");
+    row.appendChild(labelElement);
+    if (device.isActive) row.appendChild(buildCheckIcon());
+    castDeviceList.appendChild(row);
   });
 };
 
@@ -2064,6 +2120,7 @@ const renderActiveModal = (modalOpened = false) => {
   if (activeModal === "audio") renderAudioTrackList();
   if (activeModal === "subtitles") renderSubtitleModal();
   if (activeModal === "speed") renderSpeedOptionList();
+  if (activeModal === "cast") renderCastModal();
   if (activeModal === "sources") renderSourceModal(modalOpened);
   if (activeModal === "episodes") renderEpisodesModal(modalOpened);
   if (activeModal === "submitIntro") renderSubmitIntroModal();
@@ -2841,6 +2898,11 @@ document.querySelectorAll("[data-command]").forEach(button => {
       openPlayerModal("submitIntro");
       return;
     }
+    if (command === "cast") {
+      openPlayerModal("cast");
+      send("castScan", 0);
+      return;
+    }
     if (command === "toggleFullscreen") {
       togglePlayerFullscreen();
       return;
@@ -2873,6 +2935,19 @@ modalElements.forEach(modal => {
     if (event.target === modal) closePlayerModal(true);
   });
 });
+
+if (castRescanButton) {
+  castRescanButton.addEventListener("click", event => {
+    event.stopPropagation();
+    send("castScan", 0);
+  });
+}
+if (castStopButton) {
+  castStopButton.addEventListener("click", event => {
+    event.stopPropagation();
+    send("castStop", 0);
+  });
+}
 
 subtitleDelayMinus.addEventListener("click", event => {
   event.stopPropagation();

@@ -3,6 +3,7 @@ package com.nuvio.app.features.player.desktop
 import androidx.compose.ui.graphics.Color
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.player.PlayerControlAddonSubtitleItem
+import com.nuvio.app.features.player.PlayerControlCastDevice
 import com.nuvio.app.features.player.PlayerControlEpisodeItem
 import com.nuvio.app.features.player.PlayerControlFilterItem
 import com.nuvio.app.features.player.PlayerControlSeasonItem
@@ -1522,6 +1523,24 @@ private fun PlayerControlsState.toControlsJson(isFullscreen: Boolean): String =
         append(',')
         appendJsonField("castLabel", castLabel)
         append(',')
+        appendJsonField("castPanelTitle", castPanelTitle)
+        append(',')
+        appendJsonField("castScanningLabel", castScanningLabel)
+        append(',')
+        appendJsonField("castEmptyLabel", castEmptyLabel)
+        append(',')
+        appendJsonField("castRescanLabel", castRescanLabel)
+        append(',')
+        appendJsonField("castStopLabel", castStopLabel)
+        append(',')
+        appendJsonField("castStatusMessage", castStatusMessage)
+        append(',')
+        appendJsonField("castScanning", castScanning)
+        append(',')
+        appendJsonField("castActiveDeviceId", castActiveDeviceId.orEmpty())
+        append(',')
+        appendJsonArrayField("castDevices", castDevices) { appendCastDeviceJson(it) }
+        append(',')
         appendJsonField("durationMs", durationMs)
         append(',')
         appendJsonField("positionMs", positionMs)
@@ -1723,6 +1742,16 @@ private fun StringBuilder.appendSourceItemJson(item: PlayerControlSourceItem) {
         appendJsonField("borderColor", badge.borderColor)
         append('}')
     }
+    append('}')
+}
+
+private fun StringBuilder.appendCastDeviceJson(item: PlayerControlCastDevice) {
+    append('{')
+    appendJsonField("label", item.label)
+    append(',')
+    appendJsonField("protocol", item.protocol)
+    append(',')
+    appendJsonField("isActive", item.isActive)
     append('}')
 }
 

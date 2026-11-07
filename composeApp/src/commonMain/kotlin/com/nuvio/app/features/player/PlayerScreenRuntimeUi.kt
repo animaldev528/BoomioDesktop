@@ -294,6 +294,16 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         // boomio origin (a cast re-resolves the stream through /find).
         castLabel = stringResource(Res.string.cast_action),
         showCast = CastController.isAvailable() && BoomioStreamResolver.isEnabled(),
+        castScanning = castScanning,
+        castStatusMessage = castStatusText(),
+        castActiveDeviceId = castActiveDeviceId(),
+        castDevices = castDevices.map { device ->
+            PlayerControlCastDevice(
+                label = device.name,
+                protocol = device.protocol.name.lowercase(),
+                isActive = device.id == castActiveDeviceId(),
+            )
+        },
         pipPlaceholderTitle = stringResource(Res.string.compose_player_pip_placeholder_title),
         pipRestoreLabel = stringResource(Res.string.compose_player_pip_restore),
         pipWindowTitle = stringResource(Res.string.compose_player_pip_window_title),
@@ -1128,6 +1138,15 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
         "parentalGuideComplete" -> {
             showParentalGuide = false
         }
+        // Casting is driven from the player page, not from Compose: on the
+        // desktop the video surface is a native child window and a Compose
+        // dialog behind it is invisible, so the picker is the HTML panel.
+        "castScan" -> rescanCastDevices()
+        "castSelect" -> {
+            val device = castDevices.getOrNull(value.toInt()) ?: return true
+            castToDevice(device)
+        }
+        "castStop" -> stopCasting()
         else -> return false
     }
     return true
@@ -1338,6 +1357,23 @@ private fun PlayerScreenRuntime.dismissMusicIdentify() {
  * that was asleep a minute ago is awake now, and a remembered list is the one
  * thing guaranteed to be stale exactly when someone is trying to cast.
  */
+/** The renderer currently playing, if any. */
+private fun PlayerScreenRuntime.castActiveDeviceId(): String? =
+    CastController.active.value?.device?.id
+
+/**
+ * One line under the device list: what the push is doing, or why it failed.
+ * Empty when the panel has nothing to add.
+ */
+private fun PlayerScreenRuntime.castStatusText(): String {
+    castErrorReason?.takeIf { it.isNotBlank() }?.let { reason ->
+        val device = castErrorDeviceName?.takeIf { it.isNotBlank() }
+        return if (device != null) "$device: $reason" else reason
+    }
+    val device = castProgressDeviceName?.takeIf { it.isNotBlank() } ?: return ""
+    return if (castStopping) "Stopping $device…" else "Sending to $device…"
+}
+
 private fun PlayerScreenRuntime.openCastPicker() {
     castErrorDeviceName = null
     castErrorReason = null

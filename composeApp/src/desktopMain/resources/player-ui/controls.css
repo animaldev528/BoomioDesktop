@@ -2998,6 +2998,21 @@ button.action:focus-visible {
   text-align: center;
 }
 
+/* Cast panel: a device list plus its two actions. */
+.cast-status {
+  padding: 8px 12px 0;
+  color: rgba(255, 255, 255, .72);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.cast-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 12px 4px;
+}
+
 .intro-form {
   display: flex;
   flex-direction: column;

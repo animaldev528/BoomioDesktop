@@ -109,6 +109,16 @@ data class PlayerControlsState(
     val pipLabel: String = "",
     /** Tooltip/label of the cast button drawn by the desktop player UI. */
     val castLabel: String = "",
+    val castPanelTitle: String = "Cast",
+    val castScanningLabel: String = "Looking for screens…",
+    val castEmptyLabel: String = "No screens found",
+    val castRescanLabel: String = "Rescan",
+    val castStopLabel: String = "Stop casting",
+    val castStatusMessage: String = "",
+    val castScanning: Boolean = false,
+    /** Renderers found by the last scan, in the order they were offered. */
+    val castDevices: List<PlayerControlCastDevice> = emptyList(),
+    val castActiveDeviceId: String? = null,
     val pipPlaceholderTitle: String = "",
     val pipRestoreLabel: String = "",
     val pipWindowTitle: String = "",
@@ -285,6 +295,13 @@ data class PlayerControlSourceBadgeItem(
     val tagColor: String = "",
     val tagStyle: String = "",
     val borderColor: String = "",
+)
+
+/** One row of the cast panel: a renderer discovered on the LAN. */
+data class PlayerControlCastDevice(
+    val label: String = "",
+    val protocol: String = "",
+    val isActive: Boolean = false,
 )
 
 data class PlayerControlSourceItem(
