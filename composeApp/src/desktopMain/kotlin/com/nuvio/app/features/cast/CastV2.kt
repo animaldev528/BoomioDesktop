@@ -521,6 +521,14 @@ private class CastSender(private val host: String) : Closeable {
     /** The next frame, or null when [deadline] passes before a single byte arrives. */
     private fun awaitMessage(deadline: Long): Message? = readFrame(deadline)
 
+    /**
+     * ⚠️ Synchronised because two threads read this socket: the keepalive, and
+     * whichever thread is waiting for a LOAD/STOP answer. Frames are
+     * length-prefixed, so two interleaved readers do not merely get each other's
+     * messages — they consume each other's bytes and every following frame is
+     * garbage. One reader at a time is the only correct arrangement.
+     */
+    @Synchronized
     private fun readFrame(deadline: Long): Message? {
         val header = readExactly(4, deadline) ?: return null
         val length = ((header[0].toInt() and 0xFF) shl 24) or
