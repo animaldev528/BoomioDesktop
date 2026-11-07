@@ -145,17 +145,22 @@ private const val HUB_MERGED_ITEM_LIMIT = 60
  * Shows each `hub-` movie/series pair as ONE row, at the first sibling's position,
  * with the kinds interleaved and the drawer of the leader's catalog behind "open".
  *
- * Without this Home reads as doubled: "Action" (movies) and "Action" (series) as
- * two rows with the same label and near-identical artwork.
+ * Without this Home reads as doubled wherever a board publishes a bare door twice
+ * -- "Genre" as movies and again as series, same label, near-identical artwork.
  *
- * [mergedTitleByKey] supplies the label the merged row should carry -- the bare
- * catalog name, so the "(Movies)"/"(Series)" suffix the pair used to tell itself
- * apart is dropped. The leader's own key survives, so the row still opens the
- * leader's catalog and the settings screen still has one row to order.
+ * Only siblings that share a catalog NAME fold. A board that calls its pair
+ * "Netflix movies" and "Netflix shows" has named them apart on purpose and gets two
+ * rows, which is what the TV does too.
+ *
+ * The merged row keeps the leader's key, so it still opens the leader's catalog and
+ * the settings screen still has one row to order. Its label is the bare catalog name
+ * (or the user's custom title), because the "(Movies)"/"(Series)" suffix Home adds
+ * to tell the siblings apart no longer describes what the row holds.
  */
 internal fun collapseHubSiblingSections(
     sections: List<HomeCatalogSection>,
-    mergedTitleByKey: Map<String, String>,
+    catalogNameByKey: Map<String, String>,
+    customTitleByKey: Map<String, String>,
 ): List<HomeCatalogSection> {
     if (sections.size < 2) return sections
 
@@ -163,7 +168,10 @@ internal fun collapseHubSiblingSections(
     sections.forEach { section ->
         val catalogId = (section.target as? CatalogTarget.Addon)?.catalogId ?: return@forEach
         val base = hubGroupBaseOf(catalogId) ?: return@forEach
-        groups.getOrPut(base) { mutableListOf() } += section
+        val members = groups.getOrPut(base) { mutableListOf() }
+        val name = catalogNameOf(section, catalogNameByKey)
+        val leaderName = members.firstOrNull()?.let { catalogNameOf(it, catalogNameByKey) }
+        if (leaderName == null || leaderName.equals(name, ignoreCase = true)) members += section
     }
     val merges = groups.filterValues { it.size >= 2 }
     if (merges.isEmpty()) return sections
@@ -171,7 +179,11 @@ internal fun collapseHubSiblingSections(
     val mergedByLeaderKey = HashMap<String, HomeCatalogSection>()
     val foldedKeys = HashSet<String>()
     merges.values.forEach { members ->
-        mergedByLeaderKey[members.first().key] = mergeHubSections(members, mergedTitleByKey)
+        mergedByLeaderKey[members.first().key] = mergeHubSections(
+            members = members,
+            title = customTitleByKey[members.first().key]?.takeIf { it.isNotBlank() }
+                ?: catalogNameOf(members.first(), catalogNameByKey).takeIf { it.isNotBlank() },
+        )
         members.drop(1).forEach { foldedKeys += it.key }
     }
 
@@ -183,9 +195,14 @@ internal fun collapseHubSiblingSections(
     }
 }
 
+private fun catalogNameOf(
+    section: HomeCatalogSection,
+    catalogNameByKey: Map<String, String>,
+): String = catalogNameByKey[section.key].orEmpty().ifBlank { section.title }
+
 private fun mergeHubSections(
     members: List<HomeCatalogSection>,
-    mergedTitleByKey: Map<String, String>,
+    title: String?,
 ): HomeCatalogSection {
     val leader = members.first()
     val merged = LinkedHashMap<String, MetaPreview>()
@@ -201,7 +218,7 @@ private fun mergeHubSections(
         index++
     }
     return leader.copy(
-        title = mergedTitleByKey[leader.key]?.takeIf { it.isNotBlank() } ?: leader.title,
+        title = title ?: leader.title,
         items = merged.values.toList(),
         availableItemCount = members.sumOf { it.availableItemCount },
         hasMore = members.any { it.hasMore },

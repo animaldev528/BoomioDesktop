@@ -237,13 +237,13 @@ object HomeRepository {
             }
 
         // A `hub-` door is published twice, once per kind; show it once.
-        val hubMergedTitles = currentDefinitions.associate { definition ->
-            definition.key to (
-                preferences[definition.key]?.customTitle?.takeIf { it.isNotBlank() }
-                    ?: definition.catalogName
-                )
-        }
-        val displaySections = collapseHubSiblingSections(sections, hubMergedTitles)
+        val hubCatalogNames = currentDefinitions.associate { it.key to it.catalogName }
+        val hubCustomTitles = preferences.mapValues { (_, preference) -> preference.customTitle }
+        val displaySections = collapseHubSiblingSections(
+            sections = sections,
+            catalogNameByKey = hubCatalogNames,
+            customTitleByKey = hubCustomTitles,
+        )
 
         val catalogHeroItems = if (snapshot.heroEnabled) {
             val heroRandom = Random((requestKey?.hashCode() ?: 0).absoluteValue + 1)
