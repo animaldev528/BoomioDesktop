@@ -61,10 +61,24 @@ internal fun PlayerToolbar(
     isLocked: Boolean,
     onLockToggle: () -> Unit,
     onBack: () -> Unit,
+    /**
+     * Shown here, not only in the action row. That row renders five entries and
+     * hides everything past them behind a chevron, and cast sorted eleventh — so
+     * a control that only lived there was invisible in practice. The toolbar is
+     * the only chrome the modern layout always paints.
+     */
+    onCastClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.weight(1f))
+        if (onCastClick != null) {
+            PlayerAction(
+                description = stringResource(Res.string.cast_action),
+                icon = Icons.Rounded.Cast,
+                onClick = onCastClick,
+            )
+        }
         PlayerAction(
             description = stringResource(
                 if (isLocked) Res.string.compose_player_unlock_controls else Res.string.compose_player_lock_controls,
