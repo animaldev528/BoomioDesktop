@@ -1398,22 +1398,41 @@ private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
 /**
  * Stops the renderer and takes playback back here.
  *
- * The local player is resumed whatever the stop reports: a renderer that cannot
- * be reached is already not playing anything we control, and leaving this player
- * paused would make a failed stop look like a hang.
+ * A stop the renderer refused keeps the sheet open with the reason: the film is
+ * still playing on that screen, and closing the sheet would take away both the
+ * message and the only control that can try again.
  */
 private fun PlayerScreenRuntime.stopCasting() {
     if (castProgressDeviceName != null) return
+    val deviceName = CastController.active.value?.device?.name
     scope.launch {
-        CastController.stop()
-        castErrorDeviceName = null
-        castErrorReason = null
-        showCastPicker = false
-        playerController?.play()
+        castStopping = true
+        castProgressDeviceName = deviceName
+        val result = CastController.stop()
+        castStopping = false
+        castProgressDeviceName = null
+        if (result.ok) {
+            castErrorDeviceName = null
+            castErrorReason = null
+            showCastPicker = false
+            playerController?.play()
+        } else {
+            castErrorDeviceName = deviceName
+            castErrorReason = result.reason ?: "the screen did not stop"
+        }
     }
 }
 
+/**
+ * Closing the sheet is refused while a push is in flight.
+ *
+ * The push has already paused the local player and cannot be recalled — the
+ * renderer may start whatever the sheet does — so leaving it visible until it
+ * answers is the only arrangement where the outcome is not hidden. It is bounded
+ * by the transport timeouts (a few seconds), not by the film.
+ */
 private fun PlayerScreenRuntime.dismissCastPicker() {
+    if (castProgressDeviceName != null) return
     showCastPicker = false
     castErrorDeviceName = null
     castErrorReason = null
@@ -2165,6 +2184,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             scanning = castScanning,
             activeDeviceId = activeCast?.device?.id,
             progressDeviceName = castProgressDeviceName,
+            stopping = castStopping,
             errorDeviceName = castErrorDeviceName,
             errorReason = castErrorReason,
             onRescan = { rescanCastDevices() },

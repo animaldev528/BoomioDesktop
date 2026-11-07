@@ -28,6 +28,7 @@ import nuvio.composeapp.generated.resources.cast_preparing
 import nuvio.composeapp.generated.resources.cast_rescan
 import nuvio.composeapp.generated.resources.cast_scanning
 import nuvio.composeapp.generated.resources.cast_stop
+import nuvio.composeapp.generated.resources.cast_stopping
 import nuvio.composeapp.generated.resources.cast_title
 import org.jetbrains.compose.resources.stringResource
 
@@ -45,6 +46,7 @@ internal fun CastPickerDialog(
     scanning: Boolean,
     activeDeviceId: String?,
     progressDeviceName: String?,
+    stopping: Boolean,
     errorDeviceName: String?,
     errorReason: String?,
     onRescan: () -> Unit,
@@ -52,7 +54,13 @@ internal fun CastPickerDialog(
     onStop: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val progressText = progressDeviceName?.let { stringResource(Res.string.cast_preparing, it) }
+    val progressText = progressDeviceName?.let {
+        if (stopping) {
+            stringResource(Res.string.cast_stopping, it)
+        } else {
+            stringResource(Res.string.cast_preparing, it)
+        }
+    }
     val errorText = if (errorDeviceName != null && errorReason != null) {
         stringResource(Res.string.cast_failed, errorDeviceName, errorReason)
     } else {
@@ -136,7 +144,9 @@ internal fun CastPickerDialog(
                 }
             }
             androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
-            TextButton(onClick = onDismiss) {
+            // Disabled, not hidden: the exchange is in flight and the renderer
+            // may already be playing, so the sheet has to stay until it answers.
+            TextButton(onClick = onDismiss, enabled = progressText == null) {
                 Text(stringResource(Res.string.cast_close))
             }
         }

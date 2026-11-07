@@ -2605,5 +2605,6 @@
     <string name="cast_stop">Stop casting</string>
     <string name="cast_close">Close</string>
     <string name="cast_preparing">Preparing the stream for %1$s…</string>
+    <string name="cast_stopping">Stopping %1$s…</string>
     <string name="cast_failed">Could not cast to %1$s: %2$s</string>
 </resources>

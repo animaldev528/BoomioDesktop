@@ -14,15 +14,8 @@ data class CastPlayResult(val ok: Boolean, val reason: String? = null) {
     }
 }
 
-/**
- * Whether a renderer can actually fetch this stream.
- *
- * A television sends no headers of its own, so a stream that only plays with our
- * `Authorization` / `X-Boomio-Stream-Token` headers is a guaranteed 403 on the
- * couch. bsf knows this and, on a cast request, moves the stream token into the
- * URL query — the same credential on the one channel the device has. So the
- * question is not "are there headers" but "does the link carry its own
- * credential".
- */
-internal fun canHandToRenderer(url: String, requestHeaders: Map<String, String>): Boolean =
-    requestHeaders.isEmpty() || url.contains("token=", ignoreCase = true)
+// A renderer sends no headers, so a cast URL must carry its own credential. That
+// is a property of how the URL is minted — `/find` with the `target*` parameters
+// — rather than something to check here: `CastTarget.queryString()` is what makes
+// bsf put the stream token in the query, and `BoomioStreamResolver.resolveForCast`
+// is the only path that produces a cast URL.

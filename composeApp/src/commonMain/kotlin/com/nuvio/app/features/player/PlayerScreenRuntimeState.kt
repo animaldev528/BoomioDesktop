@@ -263,6 +263,8 @@ internal class PlayerScreenRuntime(
      * of wording and the message is built where `stringResource` is available.
      */
     var castProgressDeviceName by mutableStateOf<String?>(null)
+    /** True while that in-flight action is a stop rather than a push. */
+    var castStopping by mutableStateOf(false)
     /** The device a push failed on, and the reason — kept apart for the same reason. */
     var castErrorDeviceName by mutableStateOf<String?>(null)
     var castErrorReason by mutableStateOf<String?>(null)

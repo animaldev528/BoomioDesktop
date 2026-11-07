@@ -1,8 +1,10 @@
 package com.nuvio.app.features.cast
 
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 
 /**
  * The platform half of casting, installed once at startup.
@@ -55,21 +57,51 @@ object CastController {
         }
     }
 
+    /**
+     * Hands [url] to [device], one renderer at a time.
+     *
+     * ⚠️ The previous screen is stopped **first**, and if it will not stop the
+     * cast is refused. There is one `_active` slot and one Stop button: leaving
+     * the old television playing while the new one starts means the film is now
+     * running on two screens with a control for only one of them, and the first
+     * screen can only be silenced with its own remote.
+     *
+     * The push itself runs `NonCancellable`: a player screen going away mid-push
+     * must not lose the answer, because the television may have started playing
+     * regardless and [_active] is the only thing that remembers it.
+     */
     suspend fun cast(device: CastDevice, url: String, title: String): CastPlayResult {
         val platform = platform ?: return CastPlayResult.failed("Casting is not available in this build")
-        val result = platform.play(device, url, title)
-        if (result.ok) _active.value = ActiveCast(device, title) else _active.value = null
+        val previous = _active.value
+        if (previous != null && previous.device.id != device.id) {
+            val stopped = runCatching { platform.stop(previous.device) }
+                .getOrElse { CastPlayResult.failed(it.message ?: "could not stop the other screen") }
+            if (!stopped.ok) {
+                return CastPlayResult.failed(
+                    "${previous.device.name} is still playing and could not be stopped " +
+                        "(${stopped.reason})",
+                )
+            }
+            _active.value = null
+        }
+        val result = withContext(NonCancellable) { platform.play(device, url, title) }
+        if (result.ok) _active.value = ActiveCast(device, title)
         return result
     }
 
+    /**
+     * Stops the active renderer, and forgets it **only if it stopped**.
+     *
+     * A refused stop (a Roku in Limited mode, a TV answering UPnP 701) leaves the
+     * screen playing; clearing [_active] then would remove the only control that
+     * can try again and report nothing.
+     */
     suspend fun stop(): CastPlayResult {
         val platform = platform ?: return CastPlayResult.Ok
         val active = _active.value ?: return CastPlayResult.Ok
         val result = runCatching { platform.stop(active.device) }
             .getOrElse { CastPlayResult.failed(it.message ?: "stop failed") }
-        // The player is resumed by the caller either way: a renderer we cannot
-        // reach is already not playing anything we control.
-        _active.value = null
+        if (result.ok) _active.value = null
         return result
     }
 }

@@ -168,6 +168,9 @@ private class CastSender(private val host: String) : Closeable {
     /** The receiver's transport id for the media receiver, once [load] has resolved it. */
     @Volatile
     private var transportId: String? = null
+    /** Set while another thread is waiting for a specific answer, so the keepalive stands aside. */
+    @Volatile
+    private var awaitingAnswer = false
 
     init {
         val raw = Socket()
@@ -347,12 +350,24 @@ private class CastSender(private val host: String) : Closeable {
      */
     fun stopPlayback() {
         val transport = transportId ?: throw CastFailure("no media receiver session is open")
-        val sessionId = currentMediaSessionId(transport)
-        if (sessionId == Int.MIN_VALUE) return
-        send(
-            SENDER, transport, NS_MEDIA,
-            """{"type":"STOP","sessionId":$sessionId,"requestId":${nextRequestId()}}""",
-        )
+        // The keepalive would otherwise be the one to read the status this wait
+        // is for, and the wait would time out on a healthy receiver. It is a
+        // flag rather than a lock because the keepalive may already be inside a
+        // read; if it wins that race the wait fails honestly (below) instead of
+        // reporting a stop that never happened.
+        awaitingAnswer = true
+        try {
+            val sessionId = currentMediaSessionId(transport)
+            if (sessionId == Int.MIN_VALUE) {
+                throw CastFailure("the TV did not report what it is playing")
+            }
+            send(
+                SENDER, transport, NS_MEDIA,
+                """{"type":"STOP","sessionId":$sessionId,"requestId":${nextRequestId()}}""",
+            )
+        } finally {
+            awaitingAnswer = false
+        }
     }
 
     /** Sends PING twice a minute and drains what comes back, until closed. */
@@ -369,8 +384,10 @@ private class CastSender(private val host: String) : Closeable {
                 Thread.sleep(PING_INTERVAL_MS)
                 send(SENDER, RECEIVER, NS_HEARTBEAT, """{"type":"PING"}""")
                 // Read the PONG (and any status push) so the receive buffer cannot
-                // fill over a long film. One frame per ping is the whole traffic.
-                readFrame(System.currentTimeMillis() + READ_TIMEOUT_MS)
+                // fill over a long film. One frame per ping is the whole traffic —
+                // unless someone is waiting for an answer, in which case this read
+                // is the one that would swallow it.
+                if (!awaitingAnswer) readFrame(System.currentTimeMillis() + READ_TIMEOUT_MS)
             }
         } catch (_: Exception) {
             // The receiver closed the socket, or we did. Nothing to report.
