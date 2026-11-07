@@ -7,6 +7,7 @@ import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.catalog.fetchCatalogPage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The Boomio board's one parent catalog.
@@ -38,6 +39,12 @@ object HomeHub {
     private const val FETCH_ATTEMPTS = 3
     private const val RETRY_DELAY_MS = 1_500L
     private const val TILE_LIMIT = 80
+
+    // The parent is the first thing a cold launch fetches, so a socket that hangs
+    // it holds back the whole ribbon. An attempt still running after this long is
+    // the connection, not the addon (which answers a cached page in milliseconds),
+    // and retrying is the better answer than waiting it out.
+    private const val FETCH_TIMEOUT_MS = 6_000L
 
     private var tilesByManifestUrl: Map<String, List<HomeHubTile>> = emptyMap()
     private var loadedSignature: String? = null
@@ -88,14 +95,16 @@ object HomeHub {
     private suspend fun fetchTiles(addon: ManagedAddon, catalog: AddonCatalog): List<HomeHubTile>? {
         repeat(FETCH_ATTEMPTS) { attempt ->
             if (attempt > 0) delay(RETRY_DELAY_MS)
-            val page = runCatching {
-                fetchCatalogPage(
-                    manifestUrl = addon.manifestUrl,
-                    type = catalog.type,
-                    catalogId = catalog.id,
-                    maxItems = TILE_LIMIT,
-                )
-            }.getOrNull() ?: return@repeat
+            val page = withTimeoutOrNull(FETCH_TIMEOUT_MS) {
+                runCatching {
+                    fetchCatalogPage(
+                        manifestUrl = addon.manifestUrl,
+                        type = catalog.type,
+                        catalogId = catalog.id,
+                        maxItems = TILE_LIMIT,
+                    )
+                }.getOrNull()
+            } ?: return@repeat
             // An empty parent is an answer (a board with no rows today), not a failure.
             return page.items.map { meta -> HomeHubTile(id = meta.id, name = meta.name, type = meta.type) }
         }
