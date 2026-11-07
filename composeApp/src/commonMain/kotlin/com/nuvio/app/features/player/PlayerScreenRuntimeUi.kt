@@ -1379,6 +1379,9 @@ private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
             castErrorReason = "no stream could be prepared for it"
             return@launch
         }
+        // Remembered so a failed push resumes a playing player but does not
+        // start one the viewer had deliberately paused.
+        val wasPlaying = playbackSnapshot.isPlaying
         playerController?.pause()
         val result = CastController.cast(device, url, title)
         castProgressDeviceName = null
@@ -1387,7 +1390,7 @@ private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
         } else {
             castErrorDeviceName = device.name
             castErrorReason = result.reason ?: "the screen did not accept the stream"
-            playerController?.play()
+            if (wasPlaying) playerController?.play()
         }
     }
 }
