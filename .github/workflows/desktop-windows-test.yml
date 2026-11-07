@@ -145,11 +145,19 @@ jobs:
             exit 1
           fi
           echo "built ${dll}: $(wc -c < "${dll}") bytes"
-          # Prove the C ABI really is there rather than trusting the byte count.
-          grep -c "overlaywg_" "${dll}" >/dev/null || {
-            echo "The DLL does not export the overlaywg symbols." >&2
-            exit 1
-          }
+          # Prove the C ABI is really there rather than trusting the byte count. These are the ten
+          # names OverlayWgBinding.kt resolves through JNA, spelled exactly as `//export` writes
+          # them -- `OverlayWg_`, not `overlaywg_`: the first version of this check grepped for the
+          # wrong case and failed a perfectly good 13 MB DLL.
+          for sym in OverlayWg_GenerateKeypair OverlayWg_Up OverlayWg_Down OverlayWg_Status \
+                     OverlayWg_Dial OverlayWg_Read OverlayWg_Write OverlayWg_Close \
+                     OverlayWg_LastError OverlayWg_Free; do
+            if ! grep -aq "$sym" "${dll}"; then
+              echo "The DLL does not export ${sym}." >&2
+              exit 1
+            fi
+          done
+          echo "all ten overlaywg exports present"
 
       - name: Build distributable
         shell: pwsh
