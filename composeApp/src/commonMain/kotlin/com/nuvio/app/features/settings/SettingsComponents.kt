@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
@@ -62,9 +63,11 @@ import nuvio.composeapp.generated.resources.settings_homescreen_display_name
 import nuvio.composeapp.generated.resources.settings_homescreen_hero_source
 import nuvio.composeapp.generated.resources.settings_homescreen_hidden
 import nuvio.composeapp.generated.resources.settings_homescreen_not_in_hero
+import nuvio.composeapp.generated.resources.settings_homescreen_pin_to_top
 import nuvio.composeapp.generated.resources.settings_homescreen_pinned
 import nuvio.composeapp.generated.resources.settings_homescreen_pinned_to_top
 import nuvio.composeapp.generated.resources.settings_homescreen_reorder
+import nuvio.composeapp.generated.resources.settings_homescreen_unpin
 import nuvio.composeapp.generated.resources.settings_homescreen_visible
 import org.jetbrains.compose.resources.stringResource
 import sh.calvin.reorderable.ReorderableCollectionItemScope
@@ -428,6 +431,7 @@ internal fun HomescreenCatalogRow(
     onEnabledChange: (Boolean) -> Unit,
     dragHandleScope: ReorderableCollectionItemScope,
     onPinnedDragAttempt: () -> Unit = {},
+    onPinChange: (Boolean) -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val horizontalPadding = if (isTablet) 20.dp else 16.dp
@@ -479,12 +483,11 @@ internal fun HomescreenCatalogRow(
                                 stringResource(Res.string.settings_homescreen_hidden)
                             },
                         )
-                        if (item.isCollection) {
-                            if (item.isPinnedToTop) {
-                                append(" • ")
-                                append(stringResource(Res.string.settings_homescreen_pinned_to_top))
-                            }
-                        } else {
+                        if (item.isPinnedToTop) {
+                            append(" • ")
+                            append(stringResource(Res.string.settings_homescreen_pinned_to_top))
+                        }
+                        if (!item.isCollection) {
                             append(" • ")
                             append(
                                 if (item.heroSourceEnabled) {
@@ -513,6 +516,27 @@ internal fun HomescreenCatalogRow(
                         uncheckedTrackColor = tokens.colors.borderDefault,
                     ),
                 )
+                if (!item.isCollection) {
+                    IconButton(
+                        onClick = { onPinChange(!item.isPinnedToTop) },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PushPin,
+                            contentDescription = stringResource(
+                                if (item.isPinnedToTop) {
+                                    Res.string.settings_homescreen_unpin
+                                } else {
+                                    Res.string.settings_homescreen_pin_to_top
+                                },
+                            ),
+                            tint = if (item.isPinnedToTop) {
+                                tokens.colors.accent
+                            } else {
+                                tokens.colors.textMuted.copy(alpha = tokens.opacity.medium)
+                            },
+                        )
+                    }
+                }
                 if (item.isPinnedToTop) {
                     IconButton(
                         onClick = onPinnedDragAttempt,

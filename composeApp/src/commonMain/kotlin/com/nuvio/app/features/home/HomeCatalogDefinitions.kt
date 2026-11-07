@@ -42,33 +42,85 @@ fun buildAddonCatalogRefreshSignature(addons: List<ManagedAddon>): List<String> 
         signature.value()
     }.sorted()
 
-fun buildHomeCatalogDefinitions(addons: List<ManagedAddon>): List<HomeCatalogDefinition> =
+/**
+ * Every catalog the addons offer, in manifest order -- which IS Home's default row
+ * order -- with the Boomio board's own conventions applied on top:
+ *
+ *  - a catalog that needs a query to return anything is not a row (the TV client's
+ *    rule; without it every "search" catalog renders an empty shelf);
+ *  - `rec-<row>-drilldown` catalogs are the "More Like This" drawers behind a row's
+ *    trailing tile, never rows themselves -- shown, each row reads as doubled;
+ *  - `/row/` addons (the per-profile board) additionally declare more catalogs than
+ *    they mean to show, so only the ones Home is for survive;
+ *  - `rec-_home`, the board's parent, expands into the rows its tiles name.
+ */
+fun buildHomeCatalogDefinitions(
+    addons: List<ManagedAddon>,
+    hubTiles: Map<String, List<HomeHubTile>> = emptyMap(),
+): List<HomeCatalogDefinition> =
     addons.enabledAddons().mapNotNull { addon ->
         val manifest = addon.manifest ?: return@mapNotNull null
         addon to manifest
     }.flatMap { (addon, manifest) ->
+        val isBoardAddon = isBoardAddonManifest(addon.manifestUrl)
+        val tiles = hubTiles[addon.manifestUrl].orEmpty()
         manifest.catalogs
             .filter { catalog -> catalog.extra.none { it.isRequired } }
-            .map { catalog ->
-                HomeCatalogDefinition(
-                    key = "${manifest.id}:${catalog.type}:${catalog.id}",
-                    defaultTitle = runBlocking {
-                        getString(
-                            Res.string.home_catalog_default_title,
-                            catalog.name,
-                            localizedMediaTypeLabel(catalog.type),
-                        )
-                    },
-                    catalogName = catalog.name,
-                    addonName = addon.displayTitle,
-                    manifestUrl = addon.manifestUrl,
-                    type = catalog.type,
-                    catalogId = catalog.id,
-                    supportsPagination = catalog.supportsPagination(),
-                    descriptorSignature = buildHomeCatalogDescriptorSignature(addon, manifest, catalog),
-                )
-            }
+            .filter { catalog -> !isHomeDrilldownCatalogId(catalog.id) }
+            .filter { catalog -> !isBoardAddon || isFeaturedHomeCatalog(catalog) }
+            .flatMap { catalog -> expandHomeHubCatalog(manifest, catalog, tiles) ?: listOf(catalog) }
+            .map { catalog -> addon.toHomeCatalogDefinition(manifest, catalog) }
     }.distinctBy(HomeCatalogDefinition::key) + ServerCatalog.homeDefinitions()
+
+/** The per-profile Taste board: `{base}/{userId}/row/_board/manifest.json`. */
+internal fun isBoardAddonManifest(manifestUrl: String): Boolean =
+    manifestUrl.contains("/row/")
+
+internal fun isHomeDrilldownCatalogId(catalogId: String): Boolean =
+    catalogId.endsWith(REC_DRILLDOWN_SUFFIX)
+
+internal const val REC_DRILLDOWN_SUFFIX = "-drilldown"
+
+// Per-user rec rows and hub browse rows. Only /row/ addons publish these, so
+// nothing from a per-service catalog leaks in behind this test.
+private val FEATURED_HOME_CATALOG_ID_PREFIXES = listOf("rec-", "hub-")
+private val FEATURED_HOME_CATALOG_IDS = setOf("golden-age")
+private val FEATURED_HOME_CATALOG_NAME_KEYWORDS = listOf(
+    "popular", "trending", "top", "new", "upcoming", "recent",
+    "watchlist", "recommended", "rec", "discover", "hot",
+)
+
+/** "anime"/"collection" are real row types the enum cannot name, so match the raw type. */
+internal fun isFeaturedHomeCatalog(catalog: AddonCatalog): Boolean {
+    val rawType = catalog.type.lowercase()
+    if (rawType == "collection" || rawType == "anime") return true
+    val lowerName = catalog.name.lowercase()
+    return FEATURED_HOME_CATALOG_ID_PREFIXES.any { catalog.id.startsWith(it) } ||
+        catalog.id in FEATURED_HOME_CATALOG_IDS ||
+        FEATURED_HOME_CATALOG_NAME_KEYWORDS.any { lowerName.contains(it) }
+}
+
+private fun ManagedAddon.toHomeCatalogDefinition(
+    manifest: AddonManifest,
+    catalog: AddonCatalog,
+): HomeCatalogDefinition =
+    HomeCatalogDefinition(
+        key = "${manifest.id}:${catalog.type}:${catalog.id}",
+        defaultTitle = runBlocking {
+            getString(
+                Res.string.home_catalog_default_title,
+                catalog.name,
+                localizedMediaTypeLabel(catalog.type),
+            )
+        },
+        catalogName = catalog.name,
+        addonName = displayTitle,
+        manifestUrl = manifestUrl,
+        type = catalog.type,
+        catalogId = catalog.id,
+        supportsPagination = catalog.supportsPagination(),
+        descriptorSignature = buildHomeCatalogDescriptorSignature(this, manifest, catalog),
+    )
 
 private fun buildHomeCatalogDescriptorSignature(
     addon: ManagedAddon,

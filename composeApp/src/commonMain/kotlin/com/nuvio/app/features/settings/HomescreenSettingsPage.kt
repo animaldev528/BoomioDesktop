@@ -364,6 +364,7 @@ private fun HomescreenCatalogList(
                                 onEnabledChange = { HomeCatalogSettingsRepository.setEnabled(item.key, it) },
                                 dragHandleScope = this@ReorderableItem,
                                 onPinnedDragAttempt = onPinnedDragAttempt,
+                                onPinChange = { HomeCatalogSettingsRepository.setPinned(item.key, it) },
                             )
                         }
                     }

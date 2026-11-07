@@ -52,7 +52,8 @@ object HomeRepository {
 
     fun refresh(addons: List<ManagedAddon>, force: Boolean = false) {
         val activeAddons = addons.enabledAddons()
-        val requests = buildHomeCatalogDefinitions(activeAddons)
+        // Whatever the board's parent last told us; empty until the first fetch.
+        val requests = buildHomeCatalogDefinitions(activeAddons, HomeHub.snapshot())
         currentDefinitions = requests
         val requestCacheKeys = requests.mapTo(mutableSetOf(), HomeCatalogDefinition::cacheKey)
         cachedSections = cachedSections.filterKeys(requestCacheKeys::contains)
@@ -84,18 +85,47 @@ object HomeRepository {
         activeJob?.cancel()
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         activeJob = scope.launch {
+            var firstErrorMessage: String? = null
+            // The board's parent names Home's rows, and it is only known after a
+            // fetch -- so resolve it here, once, and run the whole job against the
+            // lineup that produced rather than the pre-fetch one above.
+            val hubChanged = runCatching { HomeHub.ensureLoaded(activeAddons, force = force) }
+                .getOrDefault(false)
+            val effectiveRequests = if (hubChanged) {
+                buildHomeCatalogDefinitions(activeAddons, HomeHub.snapshot())
+            } else {
+                requests
+            }
+            val effectiveKey = if (hubChanged) {
+                effectiveRequests.joinToString(separator = "|", transform = HomeCatalogDefinition::cacheKey)
+            } else {
+                requestKey
+            }
+            if (effectiveKey != requestKey) {
+                currentDefinitions = effectiveRequests
+                currentRequestKey = effectiveKey
+                activeRequestKey = effectiveKey
+                val allowedKeys = effectiveRequests.mapTo(mutableSetOf(), HomeCatalogDefinition::cacheKey)
+                cachedSections = cachedSections.filterKeys(allowedKeys::contains)
+                // The settings screen lists one row per definition, so it has to
+                // learn the new lineup too instead of waiting for its next trigger.
+                runCatching { HomeCatalogSettingsRepository.syncCatalogs(activeAddons) }
+                    .onFailure { error ->
+                        if (firstErrorMessage == null) firstErrorMessage = error.message
+                    }
+            }
+
             val prioritizedRequests = prioritizeDefinitions(
-                definitions = requests,
+                definitions = effectiveRequests,
                 snapshot = HomeCatalogSettingsRepository.snapshot(),
             )
             val loadedSections = linkedMapOf<String, HomeCatalogSection>().apply {
                 putAll(cachedSections)
             }
-            var firstErrorMessage: String? = null
             var batchIndex = 0
 
             prioritizedRequests.chunked(HOME_CATALOG_FETCH_BATCH_SIZE).forEach { batch ->
-                if (activeRequestKey != requestKey) return@launch
+                if (activeRequestKey != effectiveKey) return@launch
                 val results = batch.map { request ->
                     async {
                         request to runCatching {
@@ -104,7 +134,7 @@ object HomeRepository {
                     }
                 }.awaitAll()
 
-                if (activeRequestKey != requestKey) return@launch
+                if (activeRequestKey != effectiveKey) return@launch
 
                 results.mapNotNull { (request, result) ->
                     result.getOrNull()?.let { section -> request.cacheKey to section }
@@ -121,26 +151,26 @@ object HomeRepository {
                 if (batchIndex == 0 || (batchIndex + 1) % HOME_CATALOG_PUBLISH_INTERVAL == 0) {
                     publishCurrentState(
                         isLoading = true,
-                        requestKey = requestKey,
+                        requestKey = effectiveKey,
                     )
                 }
                 batchIndex++
             }
 
-            if (activeRequestKey != requestKey) return@launch
+            if (activeRequestKey != effectiveKey) return@launch
 
             cachedSections = loadedSections.toMap()
             lastErrorMessage = firstErrorMessage
             activeRequestKey = null
             publishCurrentState(
                 isLoading = false,
-                requestKey = requestKey,
+                requestKey = effectiveKey,
             )
             ensureCollectionHeroFallback(
                 addons = activeAddons,
                 forceRefresh = force,
                 refreshSources = true,
-                requestKey = requestKey,
+                requestKey = effectiveKey,
             )
         }
     }
@@ -161,6 +191,7 @@ object HomeRepository {
     fun clear() {
         activeJob?.cancel()
         activeJob = null
+        HomeHub.clear()
         activeRequestKey = null
         currentRequestKey = null
         currentDefinitions = emptyList()
@@ -205,6 +236,15 @@ object HomeRepository {
                 )
             }
 
+        // A `hub-` door is published twice, once per kind; show it once.
+        val hubMergedTitles = currentDefinitions.associate { definition ->
+            definition.key to (
+                preferences[definition.key]?.customTitle?.takeIf { it.isNotBlank() }
+                    ?: definition.catalogName
+                )
+        }
+        val displaySections = collapseHubSiblingSections(sections, hubMergedTitles)
+
         val catalogHeroItems = if (snapshot.heroEnabled) {
             val heroRandom = Random((requestKey?.hashCode() ?: 0).absoluteValue + 1)
             currentDefinitions
@@ -228,8 +268,8 @@ object HomeRepository {
         val nextState = HomeUiState(
             isLoading = isLoading,
             heroItems = heroItems,
-            sections = sections,
-            errorMessage = if (sections.isEmpty()) lastErrorMessage else null,
+            sections = displaySections,
+            errorMessage = if (displaySections.isEmpty()) lastErrorMessage else null,
         )
         if (_uiState.value != nextState) _uiState.value = nextState
     }

@@ -746,7 +746,8 @@
     <string name="settings_homescreen_limit_reached">%1$s • Limit reached (max %2$d)</string>
     <string name="settings_homescreen_no_sources_selected">No hero sources selected</string>
     <string name="settings_homescreen_not_in_hero">Not in hero</string>
-    <string name="settings_homescreen_pin_to_move_toast">Remove pin to top from collection to move</string>
+    <string name="settings_homescreen_pin_to_move_toast">Remove the pin to move this row</string>
+    <string name="settings_homescreen_pin_to_top">Pin to top</string>
     <string name="settings_homescreen_pinned">Pinned</string>
     <string name="settings_homescreen_pinned_to_top">Pinned to top</string>
     <string name="settings_homescreen_reorder">Reorder</string>
@@ -758,6 +759,7 @@
     <string name="settings_homescreen_selected_count">%1$d of %2$d selected</string>
     <string name="settings_homescreen_show_hero">Show Hero Section</string>
     <string name="settings_homescreen_show_hero_description">Display hero carousel at top of home.</string>
+    <string name="settings_homescreen_unpin">Unpin from top</string>
     <string name="layout_hide_unreleased">Hide Unreleased Content</string>
     <string name="layout_hide_unreleased_sub">Hide movies and shows that haven't been released yet.</string>
     <string name="layout_catalog_type">Show Catalog Type</string>

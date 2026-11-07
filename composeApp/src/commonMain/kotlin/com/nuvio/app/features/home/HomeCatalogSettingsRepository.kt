@@ -56,7 +56,7 @@ data class HomeCatalogSettingsUiState(
             append('|')
             append(
                 items.joinToString(separator = "|") { item ->
-                    "${item.key}:${item.order}:${item.enabled}:${item.heroSourceEnabled}:${item.customTitle}"
+                    "${item.key}:${item.order}:${item.enabled}:${item.heroSourceEnabled}:${item.customTitle}:${item.isPinnedToTop}"
                 }
             )
         }
@@ -83,6 +83,10 @@ private data class StoredHomeCatalogPreference(
     val enabled: Boolean = true,
     val heroSourceEnabled: Boolean = true,
     val order: Int = 0,
+    // Local-only: the pin itself never joins the sync payload, so pinning a row on
+    // this machine does not pin it anywhere else. The ORDER a pin produces travels
+    // like any other order change, because it is an order change.
+    val pinned: Boolean = false,
 )
 
 @Serializable
@@ -167,9 +171,15 @@ object HomeCatalogSettingsRepository {
     private fun syncCatalogsInternal(addons: List<ManagedAddon>) {
         ensureLoaded()
         val collections = CollectionRepository.collections.value
-        val syncInput = CatalogSyncInput(addons, collections, Locale.current.toLanguageTag(), ServerRepository.uiState.value.revision)
+        val syncInput = CatalogSyncInput(
+            addons = addons,
+            collections = collections,
+            locale = Locale.current.toLanguageTag(),
+            serverRevision = ServerRepository.uiState.value.revision,
+            hubSignature = HomeHub.lineupSignature(),
+        )
         if (lastCatalogSync == syncInput) return
-        definitions = buildHomeCatalogDefinitions(addons)
+        definitions = buildHomeCatalogDefinitions(addons, HomeHub.snapshot())
         collectionDefinitions = buildCollectionDefinitions(collections)
         lastCatalogSync = syncInput
         lastCollectionSync = lastCollectionSync?.takeIf {
@@ -180,7 +190,7 @@ object HomeCatalogSettingsRepository {
             return
         }
         normalizePreferences()
-        enforcePinnedCollectionsAtTop()
+        enforcePinnedAtTop()
         publish()
         persist()
     }
@@ -201,14 +211,14 @@ object HomeCatalogSettingsRepository {
         ensureLoaded()
         val syncInput = collections to Locale.current.toLanguageTag()
         if (lastCollectionSync == syncInput) return
-        if (definitions.isEmpty()) definitions = buildHomeCatalogDefinitions(addons)
+        if (definitions.isEmpty()) definitions = buildHomeCatalogDefinitions(addons, HomeHub.snapshot())
         collectionDefinitions = buildCollectionDefinitions(collections)
         lastCatalogSync = lastCatalogSync?.takeIf {
             it.collections == collections && it.locale == syncInput.second
         }
         lastCollectionSync = syncInput
         normalizePreferences()
-        enforcePinnedCollectionsAtTop()
+        enforcePinnedAtTop()
         publish()
         persist()
         HomeRepository.applyCurrentSettings()
@@ -270,6 +280,24 @@ object HomeCatalogSettingsRepository {
         updatePreference(key) { preference ->
             preference.copy(customTitle = title)
         }
+    }
+
+    /**
+     * Keep [key]'s row at the top of Home until unpinned.
+     *
+     * The pin is local: only the ordering it produces is synced, exactly as a manual
+     * drag's ordering would be. That keeps the flag from meaning anything on a client
+     * that cannot show it.
+     */
+    fun setPinned(key: String, pinned: Boolean) {
+        ensureLoaded()
+        val current = preferences[key] ?: defaultPreferenceForMissingKey(key) ?: return
+        if (current.pinned == pinned) return
+        preferences = preferences + (key to current.copy(pinned = pinned))
+        enforcePinnedAtTop()
+        publish()
+        persist()
+        HomeRepository.applyCurrentSettings()
     }
 
     fun resetToDefaults() {
@@ -385,6 +413,7 @@ object HomeCatalogSettingsRepository {
                 enabled = stored?.enabled ?: true,
                 heroSourceEnabled = heroSourceEnabled,
                 order = stored?.order ?: nextOrder++,
+                pinned = stored?.pinned ?: false,
             )
         }
         preferences = normalized.toMap()
@@ -415,6 +444,7 @@ object HomeCatalogSettingsRepository {
                     enabled = preference?.enabled ?: true,
                     heroSourceEnabled = preference?.heroSourceEnabled ?: true,
                     order = preference?.order ?: 0,
+                    isPinnedToTop = preference?.pinned ?: false,
                 )
             }
 
@@ -562,6 +592,7 @@ object HomeCatalogSettingsRepository {
         hideUnreleasedContent = payload.hideUnreleasedContent
         if (payload.items.isNotEmpty()) {
             val existingHeroState = preferences.mapValues { it.value.heroSourceEnabled }
+            val existingPinnedState = preferences.mapValues { it.value.pinned }
             val remotePreferences = payload.items.associate { item ->
                 val key = item.preferenceKey()
                 key to StoredHomeCatalogPreference(
@@ -570,6 +601,7 @@ object HomeCatalogSettingsRepository {
                     enabled = item.enabled,
                     heroSourceEnabled = existingHeroState[key] ?: true,
                     order = item.order,
+                    pinned = existingPinnedState[key] ?: false,
                 )
             }
             val remoteKeys = remotePreferences.keys
@@ -593,22 +625,27 @@ object HomeCatalogSettingsRepository {
             .sortedBy { key -> preferences[key]?.order ?: Int.MAX_VALUE }
     }
 
-    private fun enforcePinnedCollectionsAtTop() {
+    private fun enforcePinnedAtTop() {
         val orderedKeys = allOrderedKeys()
         if (orderedKeys.isEmpty()) return
 
-        val pinnedCollectionKeys = collectionDefinitions
-            .asSequence()
-            .filter { it.isPinnedToTop }
-            .map { it.key }
-            .toSet()
-        if (pinnedCollectionKeys.isEmpty()) return
-
-        val pinnedKeys = orderedKeys.filter { it in pinnedCollectionKeys }
+        // Collections carry their own pin flag; catalogs are pinned per profile here,
+        // because the addon manifest has no way to say "keep me first".
+        val pinnedKeys = buildSet {
+            collectionDefinitions.forEach { definition ->
+                if (definition.isPinnedToTop) add(definition.key)
+            }
+            definitions.forEach { definition ->
+                if (preferences[definition.key]?.pinned == true) add(definition.key)
+            }
+        }
         if (pinnedKeys.isEmpty()) return
 
-        val nonPinnedKeys = orderedKeys.filterNot { it in pinnedCollectionKeys }
-        val reorderedKeys = pinnedKeys + nonPinnedKeys
+        val leadingKeys = orderedKeys.filter { it in pinnedKeys }
+        if (leadingKeys.isEmpty()) return
+
+        val nonPinnedKeys = orderedKeys.filterNot { it in pinnedKeys }
+        val reorderedKeys = leadingKeys + nonPinnedKeys
         if (reorderedKeys == orderedKeys) return
 
         val updatedPreferences = preferences.toMutableMap()
@@ -686,4 +723,7 @@ private data class CatalogSyncInput(
     val collections: List<Collection>,
     val locale: String,
     val serverRevision: Int,
+    // The board's parent can change Home's row lineup without the addon list
+    // changing at all, so the lineup is part of what a sync is keyed on.
+    val hubSignature: String = "",
 )
