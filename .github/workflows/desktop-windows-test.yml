@@ -189,6 +189,12 @@ jobs:
       - name: Build distributable
         shell: pwsh
         run: |
+          # ⚠️ `generateRuntimeConfigs` declares `local.properties` as a required input file, and it
+          # is gitignored -- upstream's release workflow materialises it from a repository secret.
+          # An empty file is enough here: every setting it would carry arrives through the
+          # environment instead, and `runtimeConfigValue` checks local.properties *first* and then
+          # falls back to the environment. Without it Gradle fails input validation before compiling.
+          if (-not (Test-Path "local.properties")) { New-Item -ItemType File "local.properties" | Out-Null }
           $task = if ("${{ inputs.package_as }}" -eq "msi") { ":composeApp:packageReleaseMsi" } else { ":composeApp:createReleaseDistributable" }
           & .\gradlew.bat $task "-Pcompose.desktop.packaging.checkJdkVendor=false" "-Pnuvio.webview2.dir=$env:WEBVIEW2_DIR" --stacktrace
           if ($LASTEXITCODE -ne 0) { throw "Gradle failed with exit code $LASTEXITCODE" }
