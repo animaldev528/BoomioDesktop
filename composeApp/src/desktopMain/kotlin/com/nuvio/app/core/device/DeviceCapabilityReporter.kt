@@ -33,12 +33,13 @@ import java.util.Locale
  *    Offline for the other ten hours even while it is playing. [HEARTBEAT_MS] is
  *    30 min, well inside the [ONLINE_GRACE].
  *
- * ⚠️ **[applicationId] is deliberately left empty.** bsm decides "is this a
- * self-reporting client?" from `app.applicationId` when it is set and falls back
- * to the `nuvio-mobile-` install-id prefix when it is not. A desktop build that
- * sent `com.nuvio.desktop` would *disable* that fallback and, because bsc is
- * healthy and therefore suppresses the last-seen branch for non-mobile reports,
- * the device would read permanently Offline with perfectly fresh telemetry.
+ * ⚠️ **[applicationId] must name the desktop, and bsm must know the name.** bsm
+ * asks `app.applicationId` whether a row is a self-reporting client, falling back
+ * to the `nuvio-mobile-` install-id prefix. The desktop keeps that prefix (it is
+ * the identity bsc and the music routes already know it by), so a blank app id
+ * made this row a phone: online, but labelled "Phone / Tablet". Sending
+ * [DESKTOP_APP_ID] fixes the label and stays online — but only against a bsm that
+ * has `isDesktopReport` (models of this app built before that fix read Offline).
  */
 internal object DeviceCapabilityReporter {
     private val log = Logger.withTag("DeviceCapability")
@@ -101,6 +102,13 @@ internal object DeviceCapabilityReporter {
 }
 
 /**
+ * The app id bsm reads twice: `isMobileReport` is false for it (so the phone
+ * fallback stops applying), and `isDesktopReport` is true — which is what both
+ * keeps this row online and labels it Desktop.
+ */
+private const val DESKTOP_APP_ID = "com.boomio.desktop"
+
+/**
  * Assembles `device-caps/1` from what a JVM can actually see.
  *
  * The honest limit here is decode and HDR: there is no `MediaCodecList` on the
@@ -151,8 +159,15 @@ internal object DeviceCapabilityProbe {
                 abis = listOf(arch),
             ),
             app = AppSection(
-                // See the class comment: empty is what keeps the device "online".
-                applicationId = "",
+                // ⚠️ What keeps this device online, and what makes the dashboard
+                // call it a Desktop. bsm decides both from this string: a report
+                // that names no app id falls back to the `nuvio-mobile-` install
+                // prefix — that is the phone, which is why blanking this field
+                // made the row read "Phone / Tablet". `isDesktopReport` (bsm
+                // dashboard/modules/devices.js) is the other half; a build of this
+                // app that runs against an older bsm reads Offline, so the server
+                // must be deployed first.
+                applicationId = DESKTOP_APP_ID,
                 versionName = AppVersionConfig.DESKTOP_VERSION_NAME,
                 versionCode = AppVersionConfig.DESKTOP_VERSION_CODE,
             ),
