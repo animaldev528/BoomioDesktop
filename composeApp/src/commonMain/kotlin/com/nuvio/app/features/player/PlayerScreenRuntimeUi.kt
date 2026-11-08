@@ -1425,42 +1425,58 @@ private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
     }
     castProgressDeviceName = device.name
     scope.launch {
-        // Asked before the push, not during it: the sender suspends inside the
-        // cast while it waits for the code, and nothing can be reported until it
-        // arrives — so the field has to be up before that call is made.
-        if (CastController.requiresPin(device)) {
+        // ⚠️ Registered for the whole cast, not just until the push starts. A
+        // receiver can stop mid-pairing to ask for a code even though its own
+        // service record predicted none — measured on an Apple TV (`AppleTV6,2`,
+        // tvOS 26.6.1) whose `flags=0x20244` leaves `PIN_REQUIRED` clear and which
+        // still puts a 4-digit code on screen. Driven only by the prediction, the
+        // code appeared on the television and nowhere in the app.
+        CastController.onPinRequired = {
             castPinDeviceName = device.name
             castPinRequired = true
         }
-        val streams = BoomioStreamResolver.resolveForCast(
-            videoId = videoId,
-            season = activeSeasonNumber,
-            episode = activeEpisodeNumber,
-            target = CastTarget.of(device),
-        )
-        val url = pickCastStream(streams, activeStreamTitle)?.url
-        if (url.isNullOrBlank()) {
+        try {
+            // Asked before the push as well: when the prediction *is* right, the
+            // field goes up while the stream resolves instead of after the sender
+            // has already stopped to wait.
+            if (CastController.requiresPin(device)) {
+                castPinDeviceName = device.name
+                castPinRequired = true
+            }
+            val streams = BoomioStreamResolver.resolveForCast(
+                videoId = videoId,
+                season = activeSeasonNumber,
+                episode = activeEpisodeNumber,
+                target = CastTarget.of(device),
+            )
+            val url = pickCastStream(streams, activeStreamTitle)?.url
+            if (url.isNullOrBlank()) {
+                castProgressDeviceName = null
+                castPinRequired = false
+                castPinDeviceName = null
+                castErrorDeviceName = device.name
+                castErrorReason = "no stream could be prepared for it"
+                return@launch
+            }
+            // Remembered so a failed push resumes a playing player but does not
+            // start one the viewer had deliberately paused.
+            val wasPlaying = playbackSnapshot.isPlaying
+            playerController?.pause()
+            val result = CastController.cast(device, url, title)
             castProgressDeviceName = null
             castPinRequired = false
             castPinDeviceName = null
-            castErrorDeviceName = device.name
-            castErrorReason = "no stream could be prepared for it"
-            return@launch
-        }
-        // Remembered so a failed push resumes a playing player but does not
-        // start one the viewer had deliberately paused.
-        val wasPlaying = playbackSnapshot.isPlaying
-        playerController?.pause()
-        val result = CastController.cast(device, url, title)
-        castProgressDeviceName = null
-        castPinRequired = false
-        castPinDeviceName = null
-        if (result.ok) {
-            showCastPicker = false
-        } else {
-            castErrorDeviceName = device.name
-            castErrorReason = result.reason ?: "the screen did not accept the stream"
-            if (wasPlaying) playerController?.play()
+            if (result.ok) {
+                showCastPicker = false
+            } else {
+                castErrorDeviceName = device.name
+                castErrorReason = result.reason ?: "the screen did not accept the stream"
+                if (wasPlaying) playerController?.play()
+            }
+        } finally {
+            // The panel may have been closed mid-cast; a stale callback would put
+            // a code field up over a screen that is no longer casting.
+            CastController.onPinRequired = null
         }
     }
 }

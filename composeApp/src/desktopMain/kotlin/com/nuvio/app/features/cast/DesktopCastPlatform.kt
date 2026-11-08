@@ -50,6 +50,10 @@ internal object DesktopCastPlatform : CastPlatform {
             if (early != null) {
                 early
             } else {
+                // The sender has stopped to ask, which is the only moment that
+                // proves a code is wanted: the TXT record does not always say so
+                // (an Apple TV on tvOS 26 contradicts it).
+                CastController.onPinRequired?.invoke()
                 val waiter = CompletableDeferred<String>()
                 pinWaiter = waiter
                 try {

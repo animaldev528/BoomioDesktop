@@ -63,6 +63,24 @@ object CastController {
     /** Installed by the desktop entry point; null leaves every call inert. */
     var platform: CastPlatform? = null
 
+    /**
+     * Raised when a cast blocks because the *receiver* asked for a code, as opposed
+     * to [CastPlatform.requiresPin] having predicted one.
+     *
+     * ⚠️ Both paths exist because the prediction is only a reading of the TXT
+     * record, and a receiver can contradict it. Measured on an Apple TV 4K
+     * (`AppleTV6,2`, tvOS 26.6.1, `flags=0x20244`): the record does not set
+     * `PIN_REQUIRED` (`0x8`) and does advertise system pairing, so the library
+     * predicts "pairs without a code" — and then the television puts a code on
+     * screen at pair-setup anyway, because it refuses transient pairing. A field
+     * driven only by the prediction never appears, and the cast waits out its
+     * timeout with the code showing on a screen the app cannot answer.
+     *
+     * Set by the player while its cast panel can show a numeric field. Invoked
+     * from an I/O thread.
+     */
+    var onPinRequired: (() -> Unit)? = null
+
     private val _scanning = MutableStateFlow(false)
     val scanning: StateFlow<Boolean> = _scanning.asStateFlow()
 
