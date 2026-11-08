@@ -135,7 +135,10 @@ private const val HANDSHAKE_TIMEOUT_MS = 4000
 private const val READ_TIMEOUT_MS = 1000
 private const val STATUS_TIMEOUT_MS = 3000L
 private const val LAUNCH_TIMEOUT_MS = 10000L
-private const val LOAD_TIMEOUT_MS = 10000L
+// A bss-dav stream needs 8-17 s to produce its first segment (measured, AltMount
+// via nzbdav), and the receiver fetches init + two segments before it reports
+// PLAYING. Ten seconds gave up in the middle of a start that was going to work.
+private const val LOAD_TIMEOUT_MS = 20000L
 private const val PLAYLIST_PROBE_MS = 4000
 
 /**
@@ -153,7 +156,7 @@ private const val PRELOAD_STATUS_TIMEOUT_MS = 1500L
  * playback while the TV went on to play the film. Waiting is the correct
  * response to that answer, not failing.
  */
-private const val STARTUP_GRACE_MS = 4000L
+private const val STARTUP_GRACE_MS = 10000L
 private const val PING_INTERVAL_MS = 5000L
 private const val MAX_FRAME = 1 shl 20
 
@@ -522,11 +525,33 @@ private class CastSender(private val host: String) : Closeable {
                     }
                 }
 
-                "LOAD_FAILED" ->
-                    throw CastFailure("the TV rejected the stream (${payload.optString("reason")})")
-
-                "INVALID_REQUEST", "LOAD_CANCELLED" ->
-                    throw CastFailure("the TV refused the load (${payload.optString("reason")})")
+                // A receiver answers a bad load with one of these three. It also
+                // sends them — reason left blank — for requests that are not this
+                // load at all, and measured on the SHIELD 2026-11-07 22:14 a
+                // blank `INVALID_REQUEST` arrived while the receiver was still
+                // fetching the playlist and segments, then went on to play the
+                // film minutes later with this client already reporting "the TV
+                // refused the load ()" and playing the stream locally instead.
+                // A refusal is therefore only taken as one when it names a
+                // reason or answers the request id we sent; anything else is
+                // logged and the wait continues.
+                "LOAD_FAILED", "INVALID_REQUEST", "LOAD_CANCELLED" -> {
+                    val type = payload.optString("type")
+                    val reason = payload.optString("reason")
+                    val answered = payload.optInt("requestId", -1) == loadRequestId
+                    castTrace(
+                        "cast receiver answered $type reason='$reason' " +
+                            "requestId=${payload.optInt("requestId", -1)} ours=$loadRequestId answered=$answered",
+                    )
+                    if (!answered && reason.isBlank()) {
+                        log.d { "cast: ignoring $type with no reason — not an answer to this load" }
+                        continue
+                    }
+                    if (type == "LOAD_FAILED") {
+                        throw CastFailure("the TV rejected the stream ($reason)")
+                    }
+                    throw CastFailure("the TV refused the load ($reason)")
+                }
             }
         }
     }
