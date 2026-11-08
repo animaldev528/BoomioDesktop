@@ -68,19 +68,59 @@ internal object DesktopAirPlay {
     @Volatile
     var pinRequester: (suspend () -> String?)? = null
 
+    /** The `flags` bit a receiver sets when it wants a code before it will pair. */
+    private const val PIN_REQUIRED_FLAG = 0x8L
+
+    private fun isAppleTv(properties: Map<String, String>): Boolean =
+        properties["model"]?.startsWith("AppleTV", ignoreCase = true) == true
+
     private fun receiverOf(device: CastDevice): Receiver = Receiver(
         name = device.name,
         host = device.ip,
         port = device.port.takeIf { it > 0 } ?: Receiver.DEFAULT_PORT,
-        properties = device.raw,
+        properties = if (isAppleTv(device.raw)) forcePin(device.raw) else device.raw,
     )
 
+    /**
+     * Makes the library ask for a code on a receiver that claims not to need one.
+     *
+     * ⚠️ Measured on an Apple TV 4K (`AppleTV6,2`, tvOS 26.6.1, `flags=0x20244`):
+     * `PIN_REQUIRED` is `0x8`, the record leaves that bit clear and advertises
+     * system pairing, so the sender takes the **transient** path. That path calls
+     * `/pair-pin-start` — which is what puts `3939` on the television, the
+     * library's own transient PIN — and is then answered **470 Connection
+     * Authorization Required**. Transient pairing asks nobody for anything, so the
+     * cast waits behind a code that can never be entered, and no PIN field can
+     * appear because no question was ever asked.
+     *
+     * Setting the bit makes the library take the ordinary PIN path instead: a
+     * fresh code appears on the television, [pinRequester] is asked for it, and
+     * pair-setup leaves the long-term credentials that pair-verify replays on
+     * every later cast. The rest of the record is untouched.
+     */
+    private fun forcePin(properties: Map<String, String>): Map<String, String> {
+        val raw = properties["flags"].orEmpty().trim().removePrefix("0x").removePrefix("0X")
+        val flags = (raw.toLongOrNull(16) ?: 0L) or PIN_REQUIRED_FLAG
+        return properties + ("flags" to "0x%X".format(flags))
+    }
+
     private fun clientFor(receiver: Receiver): Airkast =
-        if (receiver.model?.startsWith("AppleTV", ignoreCase = true) == true) {
-            appleTvClient
-        } else {
-            defaultClient
+        if (isAppleTv(receiver.properties)) appleTvClient else defaultClient
+
+    /**
+     * One line per cast decision, appended beside the stored pairings.
+     *
+     * A cast fails on a television the developer cannot see, and the player has no
+     * console on a Windows desktop: without a file, "the code appears and nothing
+     * happens" is all there is to go on.
+     */
+    private fun trace(line: String) {
+        runCatching {
+            val file = DesktopStorage.rootDir.resolve("cast.log").toFile()
+            file.parentFile?.mkdirs()
+            file.appendText("${java.time.LocalDateTime.now()} $line\n")
         }
+    }
 
     /**
      * True when playing on [device] will ask for a code: the receiver says it
@@ -120,6 +160,10 @@ internal object DesktopAirPlay {
                 "${device.name} needs the code it shows on screen, and this build has no way to ask for it"
             )
         }
+        trace(
+            "play ${device.name} ip=${device.ip} model=${receiver.model} " +
+                "compat=${receiver.compatibility} ask=${ask != null}",
+        )
         try {
             sessionLock.withLock {
                 // One cast at a time: the sender holds a control channel to the
@@ -142,13 +186,16 @@ internal object DesktopAirPlay {
                 session = opened
                 log.d { "airplay cast to ${receiver.name} (${receiver.model ?: "unknown"}) ok" }
             }
+            trace("ok ${device.name}")
             CastPlayResult.Ok
         } catch (e: AirkastException) {
             log.w { "airplay cast to ${device.name} failed: ${e.message}" }
+            trace("failed ${device.name}: ${e::class.simpleName}: ${e.message}")
             closeSession()
             CastPlayResult.failed(e.message ?: e.toString())
         } catch (e: Exception) {
             log.w { "airplay cast to ${device.name} failed: ${e.message}" }
+            trace("failed ${device.name}: ${e::class.simpleName}: ${e.message}")
             closeSession()
             CastPlayResult.failed(e.message ?: e.toString())
         }
