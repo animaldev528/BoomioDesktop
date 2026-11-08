@@ -1543,16 +1543,28 @@ private fun PlayerScreenRuntime.dismissCastPicker() {
 }
 
 /**
- * The stream to hand the renderer.
+ * The stream to hand the renderer — **the one that is playing**, when this
+ * /find still lists it.
  *
- * `/find` re-ranks for the target, so "the first playable entry" is already the
- * right answer; a title match only preserves what the person was watching when
- * the same source survives the re-rank. A stream without a URL is skipped —
- * a torrent hash cannot be fetched by a television.
+ * ⚠️ `activeStreamTitle` holds `stream.streamLabel`, which is the stream's
+ * `name`. Comparing it to `title` never matched, so every cast fell through to
+ * "the first playable entry" of a fresh /find — a different release than the
+ * one on screen. Measured: a playing torrent (Matroska) was cast as an NZB
+ * Blu-ray ISO, which no renderer can remux, and the television showed the
+ * title and died.
+ *
+ * A stream without a URL is skipped — a torrent hash cannot be fetched by a
+ * television. Falling back to the first entry is kept for the case where the
+ * playing release is gone from the new ranking, but only after the label has
+ * been matched, so it is no longer the normal path.
  */
 private fun pickCastStream(streams: List<StreamItem>, activeStreamTitle: String?): StreamItem? {
     val playable = streams.filter { !it.url.isNullOrBlank() }
-    return playable.firstOrNull { it.title != null && it.title == activeStreamTitle }
+    if (playable.isEmpty()) return null
+    val wanted = activeStreamTitle?.trim()?.takeIf { it.isNotBlank() } ?: return playable.firstOrNull()
+    return playable.firstOrNull { it.streamLabel.equals(wanted, ignoreCase = true) }
+        ?: playable.firstOrNull { it.title?.trim().equals(wanted, ignoreCase = true) }
+        ?: playable.firstOrNull { it.description?.trim().equals(wanted, ignoreCase = true) }
         ?: playable.firstOrNull()
 }
 
