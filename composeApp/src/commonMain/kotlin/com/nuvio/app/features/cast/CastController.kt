@@ -16,6 +16,22 @@ import kotlinx.coroutines.withContext
  */
 interface CastPlatform {
     suspend fun discover(timeoutMillis: Long): List<CastDevice>
+
+    /**
+     * As [discover], but hands the answers found so far to [onPartial] while the
+     * scan is still running.
+     *
+     * ⚠️ This exists because discovery is more than one scan. A platform that
+     * probes two protocols of different reach and publishes only the merged list
+     * lets a slow or failing half withhold the other's results — the panel then
+     * shows nothing at all, including screens that were listed a version earlier.
+     * Publishing per protocol means a broken half costs its own rows and no more.
+     */
+    suspend fun discoverProgressive(
+        timeoutMillis: Long,
+        onPartial: (List<CastDevice>) -> Unit,
+    ): List<CastDevice> = discover(timeoutMillis).also(onPartial)
+
     suspend fun play(device: CastDevice, url: String, title: String): CastPlayResult
     suspend fun stop(device: CastDevice): CastPlayResult
 
@@ -63,7 +79,13 @@ object CastController {
         val platform = platform ?: return emptyList()
         _scanning.value = true
         return try {
-            platform.discover(CastDiscoveryDefaults.SCAN_WINDOW_MS).also { _devices.value = it }
+            // A scan that throws used to leave the panel empty forever: the state
+            // that says "scanning" was cleared, but no list ever replaced it.
+            runCatching {
+                platform.discoverProgressive(CastDiscoveryDefaults.SCAN_WINDOW_MS) {
+                    _devices.value = it
+                }.also { _devices.value = it }
+            }.getOrElse { emptyList() }
         } finally {
             _scanning.value = false
         }

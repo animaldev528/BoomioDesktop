@@ -1,6 +1,12 @@
 package com.nuvio.app.features.cast
 
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -55,13 +61,55 @@ internal object DesktopCastPlatform : CastPlatform {
         }
     }
 
-    override suspend fun discover(timeoutMillis: Long): List<CastDevice> {
-        val ssdp = CastDiscovery.discover(timeoutMillis)
-        val airplay = AirPlayDiscovery.discover(timeoutMillis)
+    /**
+     * How long the mDNS half may take before the panel is given what SSDP found.
+     * JmDNS can block inside a socket call that ignores cancellation (a VPN or
+     * filter driver is the usual culprit), so this is a ceiling on the wait, not a
+     * claim that the scan has stopped.
+     */
+    private const val AIRPLAY_BUDGET_MS = 6_000L
+
+    private val log = Logger.withTag("DesktopCastPlatform")
+
+    override suspend fun discover(timeoutMillis: Long): List<CastDevice> =
+        discoverProgressive(timeoutMillis) {}
+
+    override suspend fun discoverProgressive(
+        timeoutMillis: Long,
+        onPartial: (List<CastDevice>) -> Unit,
+    ): List<CastDevice> {
+        // SSDP first, and published first: it is what finds the screens this build
+        // has always been able to cast to. Whatever happens to mDNS after this,
+        // those rows are already on the panel.
+        val ssdp = runCatching { CastDiscovery.discover(timeoutMillis) }.getOrElse {
+            log.w { "SSDP scan failed: ${it.message}" }
+            emptyList()
+        }
+        onPartial(ssdp)
+
+        // ⚠️ The mDNS half runs in its own scope, not as a child of this call.
+        // A blocking native call cannot be cancelled, so under structured
+        // concurrency a wedged interface would hold `await` — and with it the
+        // whole scan — long past the panel's patience. Detached, the worst case is
+        // a scan abandoned to its own timeout while the user still sees the SSDP
+        // rows and can cast.
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val airplay = scope.async {
+            runCatching { AirPlayDiscovery.discover(timeoutMillis) }.getOrElse {
+                log.w { "mDNS scan failed: ${it.message}" }
+                emptyList()
+            }
+        }
+        val found = withTimeoutOrNull(AIRPLAY_BUDGET_MS) { airplay.await() } ?: run {
+            log.w { "mDNS scan gave no answer within ${AIRPLAY_BUDGET_MS}ms; listing SSDP screens only" }
+            emptyList()
+        }
+        scope.cancel()
+
         // Keyed by protocol + address, so a screen that speaks two protocols keeps
         // one row per protocol (they are different ways to drive it) while a
         // duplicate from the same protocol collapses.
-        return (ssdp + airplay).distinctBy { it.id }
+        return (ssdp + found).distinctBy { it.id }.also(onPartial)
     }
 
     override suspend fun play(device: CastDevice, url: String, title: String): CastPlayResult =

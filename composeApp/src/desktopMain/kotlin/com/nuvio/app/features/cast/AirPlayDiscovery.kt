@@ -48,30 +48,59 @@ internal object AirPlayDiscovery {
 
     private val log = Logger.withTag("AirPlayDiscovery")
 
+    /**
+     * At most this many interfaces are browsed, most-likely-real first. A host can
+     * present a dozen virtual adapters and every one of them costs a socket, a
+     * thread and a bind that may be slow; the LAN is never the twelfth.
+     */
+    private const val MAX_INTERFACES = 8
+
+    /** Names that are, in practice, virtual. Only used to order, never to exclude. */
+    private val VIRTUAL = Regex(
+        "^(br-|docker|veth|vnic|vEthernet|utun|tun|tap|lo\\b|VMware|VirtualBox|Hyper-V|Bluetooth|Local Area Connection\\* )",
+        RegexOption.IGNORE_CASE,
+    )
+
     /** One bounded scan, merged by address. Never throws. */
     suspend fun discover(timeoutMillis: Long): List<CastDevice> = withContext(Dispatchers.IO) {
         val found = ConcurrentHashMap<String, CastDevice>()
         val browsers = mutableListOf<JmDNS>()
         try {
-            for (nif in NetworkInterface.getNetworkInterfaces()) {
-                if (!nif.isUp || nif.isLoopback || !nif.supportsMulticast()) continue
-                val address = firstIpv4(nif.getInetAddresses().toList()) ?: continue
-                val browser = try {
-                    JmDNS.create(address, "${nif.name}-${address.hostAddress}")
-                } catch (e: Exception) {
-                    // A VPN or a virtual adapter can refuse the multicast bind. That
-                    // interface has no receivers to offer; the rest still do.
-                    log.d { "mDNS unavailable on ${nif.name}: ${e.message}" }
-                    continue
+            val candidates = runCatching {
+                NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+            }.getOrElse { emptyList() }
+                .filter { nif ->
+                    // Any of these can throw per adapter, not just return false.
+                    runCatching { nif.isUp && !nif.isLoopback && nif.supportsMulticast() }
+                        .getOrDefault(false)
                 }
+                .sortedBy { nif -> if (VIRTUAL.containsMatchIn(nif.name.orEmpty())) 1 else 0 }
+                .take(MAX_INTERFACES)
+            for (nif in candidates) {
+                val address = runCatching { firstIpv4(nif.getInetAddresses().toList()) }
+                    .getOrNull()
+                    // 169.254.x.x is what an adapter says when it has no lease:
+                    // there is nothing on the other end to find.
+                    ?.takeUnless { it.isLinkLocalAddress }
+                    ?: continue
+                val browser = runCatching { JmDNS.create(address, "${nif.name}-${address.hostAddress}") }
+                    .getOrElse { t ->
+                        // A VPN or a filter driver can refuse the multicast bind.
+                        // That interface has no receivers to offer; the rest still do.
+                        // ⚠️ Throwable, not Exception: JmDNS fails at class-load time
+                        // with a LinkageError when a dependency is missing, and that
+                        // must cost one interface, never the panel.
+                        log.d { "mDNS unavailable on ${nif.name}: ${t.message}" }
+                        continue
+                    }
                 browsers += browser
-                browser.addServiceListener(SERVICE, listenerFor(browser, found))
+                runCatching { browser.addServiceListener(SERVICE, listenerFor(browser, found)) }
             }
             if (browsers.isEmpty()) return@withContext emptyList()
             // Every interface is browsed at once, so this is the whole scan window.
             delay(timeoutMillis)
-        } catch (e: Exception) {
-            log.d { "mDNS browse failed: ${e.message}" }
+        } catch (t: Throwable) {
+            log.w { "mDNS browse failed: ${t.message}" }
         } finally {
             for (browser in browsers) runCatching { browser.close() }
         }
