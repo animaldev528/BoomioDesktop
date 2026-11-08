@@ -47,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import com.nuvio.app.features.cast.CastLaunchStore
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -202,7 +203,10 @@ fun StreamsScreen(
     val effectiveResumePositionMs = resumeState.positionMs
     val effectiveResumeProgressFraction = resumeState.progressFraction
 
-    LaunchedEffect(type, videoId, seasonNumber, episodeNumber, manualSelection) {
+    // A cast is chosen screen-first: everything downstream — which releases
+    // are offered, whether one starts by itself — follows from this target.
+    val castTarget = CastLaunchStore.pending?.target
+    LaunchedEffect(type, videoId, seasonNumber, episodeNumber, manualSelection, castTarget) {
         StreamsRepository.load(
             type = type,
             videoId = videoId,
@@ -210,6 +214,7 @@ fun StreamsScreen(
             season = seasonNumber,
             episode = episodeNumber,
             manualSelection = manualSelection,
+            castTarget = castTarget,
         )
     }
 
@@ -245,6 +250,7 @@ fun StreamsScreen(
             season = seasonNumber,
             episode = episodeNumber,
             manualSelection = manualSelection,
+            castTarget = castTarget,
         )
     }
 

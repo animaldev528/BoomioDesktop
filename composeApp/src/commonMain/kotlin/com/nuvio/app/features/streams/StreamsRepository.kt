@@ -4,6 +4,7 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.boomio.BoomioStreamResolver
+import com.nuvio.app.features.cast.CastTarget
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
@@ -49,7 +50,12 @@ object StreamsRepository {
     ): String =
         "$type::$videoId::$season::$episode::$manualSelection"
 
-    fun load(type: String, videoId: String, parentMetaId: String? = null, season: Int? = null, episode: Int? = null, manualSelection: Boolean = false) {
+    /**
+     * [castTarget] turns the request into a cast: bsf is asked what THAT screen
+     * can play, and the answer is the list a viewer chooses from. See
+     * [CastLaunchStore] — the screen is picked before the streams are fetched.
+     */
+    fun load(type: String, videoId: String, parentMetaId: String? = null, season: Int? = null, episode: Int? = null, manualSelection: Boolean = false, castTarget: CastTarget? = null) {
         PluginRepository.setLocalPluginSearchPaused(false)
         load(
             type = type,
@@ -58,11 +64,12 @@ object StreamsRepository {
             season = season,
             episode = episode,
             manualSelection = manualSelection,
+            castTarget = castTarget,
             forceRefresh = false,
         )
     }
 
-    fun reload(type: String, videoId: String, parentMetaId: String? = null, season: Int? = null, episode: Int? = null, manualSelection: Boolean = false) {
+    fun reload(type: String, videoId: String, parentMetaId: String? = null, season: Int? = null, episode: Int? = null, manualSelection: Boolean = false, castTarget: CastTarget? = null) {
         PluginRepository.setLocalPluginSearchPaused(false)
         load(
             type = type,
@@ -71,11 +78,12 @@ object StreamsRepository {
             season = season,
             episode = episode,
             manualSelection = manualSelection,
+            castTarget = castTarget,
             forceRefresh = true,
         )
     }
 
-    private fun load(type: String, videoId: String, parentMetaId: String?, season: Int?, episode: Int?, manualSelection: Boolean, forceRefresh: Boolean) {
+    private fun load(type: String, videoId: String, parentMetaId: String?, season: Int?, episode: Int?, manualSelection: Boolean, castTarget: CastTarget? = null, forceRefresh: Boolean) {
         val pluginUiState = if (AppFeaturePolicy.pluginsEnabled) {
             PluginRepository.initialize()
             PluginRepository.uiState.value
@@ -89,7 +97,8 @@ object StreamsRepository {
             episode = episode,
             manualSelection = manualSelection,
         )
-        val requestKey = "$requestToken::pluginsGrouped=${pluginUiState.groupStreamsByRepository}"
+        val requestKey = "$requestToken::pluginsGrouped=${pluginUiState.groupStreamsByRepository}" +
+            "::cast=${castTarget?.queryString().orEmpty()}"
         val currentState = _uiState.value
         if (
             !forceRefresh &&
@@ -109,7 +118,10 @@ object StreamsRepository {
         val debridSettings = DebridSettingsRepository.snapshot()
         val streamBadgeRules = StreamBadgeSettingsRepository.snapshot()
         val autoPlayMode = playerSettings.streamAutoPlayMode
-        val isAutoPlayEnabled = !manualSelection && autoPlayMode != StreamAutoPlayMode.MANUAL &&
+        // A cast is a choice, not a default: the list is short and hand-picked,
+        // and starting one of it by itself is the behaviour this flow replaces.
+        val castMode = castTarget != null
+        val isAutoPlayEnabled = !manualSelection && !castMode && autoPlayMode != StreamAutoPlayMode.MANUAL &&
             !(autoPlayMode == StreamAutoPlayMode.REGEX_MATCH &&
                 !StreamAutoPlayPolicy.isRegexSelectionConfigured(playerSettings.streamAutoPlayRegex))
 
@@ -123,7 +135,7 @@ object StreamsRepository {
 
         // Enable direct auto-play flow if normal auto-play is enabled,
         // OR if we have a persisted binge group in MANUAL mode
-        val bingeGroupDirectFlow = !manualSelection &&
+        val bingeGroupDirectFlow = !manualSelection && !castMode &&
             persistedBingeGroup != null &&
             autoPlayMode == StreamAutoPlayMode.MANUAL
         val isDirectAutoPlayFlow = isAutoPlayEnabled || bingeGroupDirectFlow
@@ -435,7 +447,7 @@ object StreamsRepository {
                 null
             }
 
-            streamAddons.forEach { addon ->
+            if (!castMode) streamAddons.forEach { addon ->
                 launch {
                     val url = buildAddonResourceUrl(
                         manifestUrl = addon.manifest.transportUrl,
@@ -482,7 +494,7 @@ object StreamsRepository {
                 }
             }
 
-            serverSources.forEach { source ->
+            if (!castMode) serverSources.forEach { source ->
                 launch { publishCompletion(StreamLoadCompletion.Addon(source.load())) }
             }
 
@@ -490,11 +502,25 @@ object StreamsRepository {
                 launch {
                     val displayName = BoomioStreamResolver.ADDON_NAME
                     val group = runCatchingUnlessCancelled {
-                        BoomioStreamResolver.resolve(
-                            videoId = videoId,
-                            season = season,
-                            episode = episode,
-                        )
+                        // ⚠️ The cast lookup is not the same query. It carries the
+                        // renderer's caps, so the answer is the releases that screen
+                        // can actually start — measured on the SHIELD: 102 streams
+                        // plainly, 78 of them for the same title once the target was
+                        // sent, with every 4K entry dropped.
+                        if (castTarget != null) {
+                            BoomioStreamResolver.resolveForCast(
+                                videoId = videoId,
+                                season = season,
+                                episode = episode,
+                                target = castTarget,
+                            )
+                        } else {
+                            BoomioStreamResolver.resolve(
+                                videoId = videoId,
+                                season = season,
+                                episode = episode,
+                            )
+                        }
                     }.fold(
                         onSuccess = { streams ->
                             log.d { "Got ${streams.size} streams from ${displayName}" }
@@ -520,7 +546,7 @@ object StreamsRepository {
                 }
             }
 
-            pluginProviderGroups.forEach { providerGroup ->
+            if (!castMode) pluginProviderGroups.forEach { providerGroup ->
                 val includeScraperNameInSubtitle = false
                 providerGroup.scrapers.forEach { scraper ->
                     launch {

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -19,6 +20,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.cast.CastController
+import com.nuvio.app.features.cast.CastLaunchStore
+import com.nuvio.app.features.cast.CastPlayResult
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.debrid.toastMessage
@@ -556,6 +560,46 @@ internal fun StreamDestination(
         forceInternal: Boolean,
         saveForReuse: Boolean = true,
     ) {
+        // A cast started from a title's menu. The list this release came from
+        // was bsf's answer for the chosen screen, so the only thing left is to
+        // hand it over: the television is the player, and nothing opens here.
+        val pendingCast = CastLaunchStore.pending
+        if (pendingCast != null) {
+            val url = stream.url?.takeIf { it.isNotBlank() }
+            if (url == null) {
+                NuvioToastController.show("That release has no stream URL to cast")
+                return
+            }
+            streamRouteScope.launch {
+                val result = runCatching {
+                    CastController.cast(
+                        device = pendingCast.device,
+                        url = url,
+                        title = stream.title?.takeIf { it.isNotBlank() }
+                            ?: stream.streamLabel?.takeIf { it.isNotBlank() }
+                            ?: "",
+                        sourceLabel = stream.streamLabel,
+                    )
+                }.getOrElse { error ->
+                    if (error is CancellationException) throw error
+                    CastPlayResult.failed(
+                        error.message ?: (error::class.simpleName ?: "the cast failed"),
+                    )
+                }
+                StreamsRepository.cancelLoading()
+                if (result.ok) {
+                    CastLaunchStore.clear()
+                    NuvioToastController.show("Casting to ${pendingCast.device.name}")
+                    navController.popBackStack()
+                } else {
+                    NuvioToastController.show(
+                        "Could not cast to ${pendingCast.device.name}: " +
+                            (result.reason ?: "the screen did not accept it"),
+                    )
+                }
+            }
+            return
+        }
         if (stream.needsServerPreparation) {
             if (preparingServerStream) return
             streamRouteScope.launch {
@@ -721,6 +765,12 @@ internal fun StreamDestination(
         navController.navigate(
             PlayerRoute(launchId = launchId, title = playerLaunch.title)
         )
+    }
+
+    // Leaving this screen ends a cast that was being set up from a title's
+    // menu — the chosen screen must not silently apply to the next title.
+    DisposableEffect(Unit) {
+        onDispose { CastLaunchStore.clear() }
     }
 
     LaunchedEffect(reuseNavigated) {

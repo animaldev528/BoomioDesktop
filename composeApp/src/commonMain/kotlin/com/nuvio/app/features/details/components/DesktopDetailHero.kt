@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.ui.NuvioAsyncImage as AsyncImage
 import com.nuvio.app.core.ui.NuvioDesktopImageScaling
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.DesktopBackdropVerticalBias
 import com.nuvio.app.core.ui.StandardDesktopViewportAspectRatio
@@ -70,11 +72,16 @@ import com.nuvio.app.core.ui.fullscreenActionHorizontalInsetForWidth
 import com.nuvio.app.core.ui.expandingWideArtworkWidthDp
 import com.nuvio.app.core.ui.isFullscreenActionSupported
 import com.nuvio.app.core.ui.WideDesktopViewportAspectRatio
+import com.nuvio.app.features.boomio.BoomioStreamResolver
+import com.nuvio.app.features.cast.CastController
+import com.nuvio.app.features.cast.CastLaunchDialog
+import com.nuvio.app.features.cast.CastLaunchStore
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.formatRuntimeForDisplay
 import com.nuvio.app.features.tmdb.originalTmdbImageUrl
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.detail_logo_content_description
+import nuvio.composeapp.generated.resources.cast_action
 import nuvio.composeapp.generated.resources.hero_add_to_library
 import nuvio.composeapp.generated.resources.hero_mark_unwatched
 import nuvio.composeapp.generated.resources.playback_unavailable
@@ -226,6 +233,10 @@ fun DesktopDetailHero(
         label = "desktop_detail_hero_controls_alpha",
     )
     var logoLoadError by remember(meta.id, meta.logo) { mutableStateOf(false) }
+    // The screen chosen here outlives this dialog: it is the target the
+    // streams list is filtered for once Play is pressed. Same order as the
+    // phone — pick the screen, then pick a release it can start.
+    var castPickerOpen by remember { mutableStateOf(false) }
     val logoUrl = meta.logo?.takeIf { it.isNotBlank() }
 
     BoxWithConstraints(
@@ -353,11 +364,31 @@ fun DesktopDetailHero(
                         onClick = onSaveClick,
                         onLongClick = onSaveLongClick,
                     ))
+                    if (CastController.isAvailable() && BoomioStreamResolver.isEnabled()) {
+                        add(
+                            DetailSecondaryAction(
+                                label = stringResource(Res.string.cast_action),
+                                icon = Icons.Default.Cast,
+                                onClick = { castPickerOpen = true },
+                            ),
+                        )
+                    }
                 },
                 isTablet = true,
                 onPlayClick = onPlayClick,
                 onPlayLongClick = onPlayLongClick,
             )
+            if (castPickerOpen) {
+                CastLaunchDialog(
+                    onSelect = { device ->
+                        CastLaunchStore.begin(device)
+                        castPickerOpen = false
+                        NuvioToastController.show("Choose a stream for ${device.name}")
+                        onPlayClick()
+                    },
+                    onDismiss = { castPickerOpen = false },
+                )
+            }
         }
 
         if (heroTrailerSourceUrl != null) {
