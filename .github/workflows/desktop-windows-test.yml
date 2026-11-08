@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       boomio_base_url:
-        description: "Origin of the box this build should talk to, e.g. https://home.duckdns.org (required for pairing to work)"
+        description: "Media-plane base of the box: the origin plus the path bsf lives at, e.g. https://home.duckdns.org/bsf. An origin alone is normalised to <origin>/bsf (required for pairing and casting)"
         required: true
         type: string
       supabase_url:
@@ -186,8 +186,49 @@ jobs:
           "WEBVIEW2_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "WebView2 $ver at $dir"
 
+      # ⚠️ `BOOMIO_BASE_URL` is the **media plane**, not the box's origin: `BoomioStreamResolver`
+      # appends `/find/...` to it, and this deployment collapses every service onto one origin told
+      # apart by path (`…/bsf`, `…/bsc`, `…/bsm`). Built from the bare origin, `/find` returns the
+      # dashboard's HTML with a 404, no streams parse out of it, and casting fails with "no stream
+      # could be prepared" — and `bsmTelemetryBaseUrl`, which derives from the `/bsf` sibling, comes
+      # out blank, so the device never reports in. An origin alone is therefore normalised here
+      # rather than left to whoever dispatches the build.
+      - name: Resolve media-plane URL
+        id: media
+        shell: bash
+        run: |
+          base="${BOOMIO_BASE_URL%/}"
+          rest="${base#*://}"
+          if [ "$rest" = "$base" ]; then
+            echo "::error::BOOMIO_BASE_URL must start with http:// or https://"
+            exit 1
+          fi
+          if [ "${rest#*/}" = "$rest" ]; then
+            base="$base/bsf"
+            echo "No path in the input; using the collapsed edge's media plane at ${base}"
+          fi
+          echo "url=${base}" >> "$GITHUB_OUTPUT"
+          echo "media plane: ${base}"
+
+      - name: Check the media plane answers
+        shell: bash
+        # Not fatal: a runner that cannot reach the house says nothing about the machine the build
+        # is for. But a base that 404s produces a build whose cast button can never work, so it is
+        # worth saying loudly at build time instead of discovering it from the player.
+        run: |
+          url="${{ steps.media.outputs.url }}/find/tt0111161"
+          code="$(curl -s -o media.json -w '%{http_code}' --max-time 20 "${url}" || echo 000)"
+          if [ "${code}" != "200" ]; then
+            echo "::warning::${url} answered ${code}; casting and boomio streams will fail in this build"
+          else
+            echo "${url} answered 200 ($(wc -c < media.json) bytes)"
+          fi
+
       - name: Build distributable
         shell: pwsh
+        env:
+          # Step-level wins over the job-level value, so this is the normalised one.
+          BOOMIO_BASE_URL: ${{ steps.media.outputs.url }}
         run: |
           # ⚠️ `generateRuntimeConfigs` declares `local.properties` as a required input file, and it
           # is gitignored -- upstream's release workflow materialises it from a repository secret.
