@@ -217,7 +217,10 @@ jobs:
         # worth saying loudly at build time instead of discovering it from the player.
         run: |
           url="${{ steps.media.outputs.url }}/find/tt0111161"
-          code="$(curl -s -o media.json -w '%{http_code}' --max-time 20 "${url}" || echo 000)"
+          # `|| true`: curl still writes its status line when it fails, and a failed
+          # `&&`-chain would otherwise leave the literal fallback concatenated onto it.
+          code="$(curl -s -o media.json -w '%{http_code}' --max-time 20 "${url}" || true)"
+          code="${code:-000}"
           if [ "${code}" != "200" ]; then
             echo "::warning::${url} answered ${code}; casting and boomio streams will fail in this build"
           else
