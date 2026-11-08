@@ -32,7 +32,17 @@ interface CastPlatform {
         onPartial: (List<CastDevice>) -> Unit,
     ): List<CastDevice> = discover(timeoutMillis).also(onPartial)
 
-    suspend fun play(device: CastDevice, url: String, title: String): CastPlayResult
+    /**
+     * [sourceLabel] is the name of the stream being handed over (`⚡ TB · 69.0 GB`),
+     * carried only so a desktop with no console can record which release a cast
+     * actually pushed — the reason a failed cast used to be undiagnosable.
+     */
+    suspend fun play(
+        device: CastDevice,
+        url: String,
+        title: String,
+        sourceLabel: String? = null,
+    ): CastPlayResult
     suspend fun stop(device: CastDevice): CastPlayResult
 
     /**

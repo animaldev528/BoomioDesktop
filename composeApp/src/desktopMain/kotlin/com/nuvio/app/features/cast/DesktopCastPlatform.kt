@@ -116,8 +116,12 @@ internal object DesktopCastPlatform : CastPlatform {
         return (ssdp + found).distinctBy { it.id }.also(onPartial)
     }
 
-    override suspend fun play(device: CastDevice, url: String, title: String): CastPlayResult =
-        playOnRenderer(device, url, title)
+    override suspend fun play(
+        device: CastDevice,
+        url: String,
+        title: String,
+        sourceLabel: String?,
+    ): CastPlayResult = playOnRenderer(device, url, title, sourceLabel)
 
     override suspend fun stop(device: CastDevice): CastPlayResult = stopOnRenderer(device)
 

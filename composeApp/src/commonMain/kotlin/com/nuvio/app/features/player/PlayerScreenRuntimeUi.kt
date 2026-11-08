@@ -1450,8 +1450,8 @@ private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
                 episode = activeEpisodeNumber,
                 target = CastTarget.of(device),
             )
-            val url = pickCastStream(streams, activeStreamTitle)?.url
-            if (url.isNullOrBlank()) {
+            val candidates = castCandidates(streams, activeStreamTitle, activeSourceUrl)
+            if (candidates.isEmpty()) {
                 castProgressDeviceName = null
                 castPinRequired = false
                 castPinDeviceName = null
@@ -1463,15 +1463,26 @@ private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
             // start one the viewer had deliberately paused.
             val wasPlaying = playbackSnapshot.isPlaying
             playerController?.pause()
+            // The first candidate is the stream the viewer is watching (or its
+            // source plane when the caps filter dropped that exact release). A
+            // receiver that refuses it gets one more try on a better-behaved
+            // source instead of the whole cast failing on one bad pick.
             // A transport that throws instead of reporting a failure used to end
             // this coroutine outright: the panel kept the spinner, the local
             // player stayed paused, and the viewer was told nothing. Any throw
             // becomes the reason shown in the panel.
-            val result = runCatching { CastController.cast(device, url, title) }
-                .getOrElse { t ->
+            var result = CastPlayResult.failed("the screen did not accept the stream")
+            for (candidate in candidates) {
+                val url = candidate.url?.takeIf { it.isNotBlank() } ?: continue
+                val attempt = runCatching {
+                    CastController.cast(device, url, title, candidate.streamLabel)
+                }.getOrElse { t ->
                     if (t is kotlin.coroutines.cancellation.CancellationException) throw t
                     CastPlayResult.failed(t.message ?: (t::class.simpleName ?: "the cast failed"))
                 }
+                result = attempt
+                if (attempt.ok) break
+            }
             castProgressDeviceName = null
             castPinRequired = false
             castPinDeviceName = null
@@ -1558,15 +1569,51 @@ private fun PlayerScreenRuntime.dismissCastPicker() {
  * playing release is gone from the new ranking, but only after the label has
  * been matched, so it is no longer the normal path.
  */
-private fun pickCastStream(streams: List<StreamItem>, activeStreamTitle: String?): StreamItem? {
+private fun pickCastStream(streams: List<StreamItem>, activeStreamTitle: String?): StreamItem? =
+    castCandidates(streams, activeStreamTitle, null).firstOrNull()
+
+/**
+ * The streams to try, best first.
+ *
+ * ⚠️ The cast /find is re-run with the RENDERER's caps and comes back smaller:
+ * measured, a plain lookup returned 102 streams with 4K releases ranked first,
+ * the same lookup for a 1080p screen returned 78 with every 4K entry dropped.
+ * A viewer on a 4K release therefore has **no label to match**, and matching
+ * alone fell through to "first playable" — once an NZB Blu-ray ISO that no
+ * renderer can remux.
+ *
+ * So a miss keeps the source plane instead: `bss-tor` and `bss-dav` are
+ * different backends with different failure modes, and staying on the one the
+ * viewer chose is the closest honest substitute. Torrents come before the
+ * remaining entries because their HLS starts fastest (2.2 s first segment vs
+ * 8–17 s measured on NZB sources).
+ */
+private fun castCandidates(
+    streams: List<StreamItem>,
+    activeStreamTitle: String?,
+    activeStreamUrl: String?,
+): List<StreamItem> {
     val playable = streams.filter { !it.url.isNullOrBlank() }
-    if (playable.isEmpty()) return null
-    val wanted = activeStreamTitle?.trim()?.takeIf { it.isNotBlank() } ?: return playable.firstOrNull()
-    return playable.firstOrNull { it.streamLabel.equals(wanted, ignoreCase = true) }
-        ?: playable.firstOrNull { it.title?.trim().equals(wanted, ignoreCase = true) }
-        ?: playable.firstOrNull { it.description?.trim().equals(wanted, ignoreCase = true) }
-        ?: playable.firstOrNull()
+    if (playable.isEmpty()) return emptyList()
+    val wanted = activeStreamTitle?.trim()?.takeIf { it.isNotBlank() }
+    val exact = wanted?.let { name ->
+        playable.firstOrNull { it.streamLabel.equals(name, ignoreCase = true) }
+            ?: playable.firstOrNull { it.title?.trim().equals(name, ignoreCase = true) }
+            ?: playable.firstOrNull { it.description?.trim().equals(name, ignoreCase = true) }
+    }
+    val plane = activeStreamUrl?.let { CAST_PLANE.find(it)?.groupValues?.get(1) }
+    val samePlane = plane?.let { p -> playable.filter { it.url?.contains("/bss-$p/") == true } }.orEmpty()
+    val torrents = playable.filter { it.url?.contains("/bss-tor/") == true }
+    return (listOfNotNull(exact) + samePlane + torrents + playable)
+        .distinctBy { it.url }
+        .take(MAX_CAST_ATTEMPTS)
 }
+
+/** `/bss-tor/proxy/…` → `tor`: the stream plane the player is already reading. */
+private val CAST_PLANE = Regex("/bss-([a-z]+)/")
+
+/** One honest attempt per plane; more than this turns a failure into a wait. */
+private const val MAX_CAST_ATTEMPTS = 3
 
 /**
  * The ordinal bsc expects: the position of the track **among the audio tracks**,

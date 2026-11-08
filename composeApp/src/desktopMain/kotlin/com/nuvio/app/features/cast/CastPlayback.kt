@@ -20,6 +20,7 @@ internal suspend fun playOnRenderer(
     device: CastDevice,
     url: String,
     title: String,
+    sourceLabel: String? = null,
 ): CastPlayResult = withContext(Dispatchers.IO) {
     val rendererUrl = castPlaybackUrl(device, url)
     // Which URL went over the wire, in the shape the receiver will fetch it. The
@@ -34,8 +35,8 @@ internal suspend fun playOnRenderer(
     // answerable after the fact.
     castTrace(
         "cast ${device.protocol}/${device.name} ip=${device.ip}:${device.port} " +
-            "media=${redact(rendererUrl)} token=${rendererUrl.contains("token=")} " +
-            "remuxed=${rendererUrl != url}",
+            "src=${sourceLabel ?: "?"} media=${redact(rendererUrl)} " +
+            "token=${rendererUrl.contains("token=")} remuxed=${rendererUrl != url}",
     )
     val result = try {
         when (device.protocol) {
