@@ -33,11 +33,11 @@ internal suspend fun playOnRenderer(
         // A Roku has no generic media renderer: playback is a deep link into a
         // URL-capable channel. See RokuEcp for why that channel is Media Assistant.
         CastProtocol.ROKU -> RokuEcp.play(device, rendererUrl, title)
-        // AirPlay needs a paired AirPlay 2 session (SRP + Curve25519 + ChaCha20),
-        // which exists in the phone build only as the vendored `airkast` module.
-        // Saying so is better than the AirPlay 1 `POST /play` stub that the TV
-        // client already proved does not work against current receivers.
-        CastProtocol.AIRPLAY -> CastPlayResult.failed("AirPlay is not supported on desktop yet")
+        // AirPlay needs a paired AirPlay 2 session (SRP + PIN, then Curve25519 +
+        // ChaCha20 per control channel). `DesktopAirPlay` drives the vendored
+        // sender that owns that handshake; a bare `POST /play` is answered 403 by
+        // an Apple TV without it (measured, tvOS 26.6.1).
+        CastProtocol.AIRPLAY -> DesktopAirPlay.play(device, rendererUrl)
     }
     if (!result.ok) log.w { "cast to ${device.protocol}/${device.name} (${device.ip}) failed: ${result.reason}" }
     result
@@ -63,7 +63,7 @@ internal suspend fun stopOnRenderer(device: CastDevice): CastPlayResult =
                 if (RokuEcp.keypress(device, "Home")) CastPlayResult.Ok
                 else CastPlayResult.failed("the Roku did not accept the Home keypress")
             }
-            CastProtocol.AIRPLAY -> CastPlayResult.failed("AirPlay is not supported on desktop yet")
+            CastProtocol.AIRPLAY -> DesktopAirPlay.stop()
         }.also { result ->
             if (!result.ok) log.w { "cast stop on ${device.protocol}/${device.name} failed: ${result.reason}" }
         }

@@ -258,6 +258,17 @@
           <div class="track-header" id="castPanelTitle">Cast</div>
           <div class="track-list" id="castDeviceList"></div>
           <div class="cast-status" id="castStatus" hidden></div>
+          <!-- An AirPlay television shows a 4-digit code the first time anything
+               casts to it. The field lives in this page because a Compose dialog
+               opens behind the native video surface and would be invisible. -->
+          <div class="cast-pin" id="castPinBlock" hidden>
+            <label class="cast-pin-label" id="castPinLabel" for="castPinInput">Enter the code shown on the screen</label>
+            <div class="cast-pin-row">
+              <input class="cast-pin-input" id="castPinInput" type="text" inputmode="numeric"
+                     autocomplete="one-time-code" maxlength="6" placeholder="1234">
+              <button class="panel-button" id="castPinSubmitButton" type="button">Pair</button>
+            </div>
+          </div>
           <div class="cast-buttons">
             <button class="panel-button" id="castRescanButton" type="button">Rescan</button>
             <button class="panel-button" id="castStopButton" type="button" hidden>Stop casting</button>

@@ -18,6 +18,18 @@ interface CastPlatform {
     suspend fun discover(timeoutMillis: Long): List<CastDevice>
     suspend fun play(device: CastDevice, url: String, title: String): CastPlayResult
     suspend fun stop(device: CastDevice): CastPlayResult
+
+    /**
+     * True when casting to [device] will first ask for a code its screen shows.
+     * AirPlay on a television it has never paired with answers yes; every other
+     * protocol answers no, so the field never appears where it cannot be needed.
+     * Asked *before* the cast starts, because the cast blocks inside `play` while
+     * it waits for an answer and the UI would have nothing to show meanwhile.
+     */
+    suspend fun requiresPin(device: CastDevice): Boolean = false
+
+    /** Hands the code the user typed to a cast that is waiting for one. */
+    fun submitPin(code: String) = Unit
 }
 
 /** The renderer the player currently believes it is casting to. */
@@ -103,6 +115,18 @@ object CastController {
             .getOrElse { CastPlayResult.failed(it.message ?: "stop failed") }
         if (result.ok) _active.value = null
         return result
+    }
+
+    /**
+     * Whether casting to [device] will need a code from its screen, asked before
+     * the cast starts so the UI can put the field up.
+     */
+    suspend fun requiresPin(device: CastDevice): Boolean =
+        platform?.requiresPin(device) ?: false
+
+    /** Hands the typed code to the cast that is waiting for it. */
+    fun submitPin(code: String) {
+        platform?.submitPin(code)
     }
 }
 

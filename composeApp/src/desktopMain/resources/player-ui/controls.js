@@ -85,6 +85,10 @@ const castDeviceList = document.getElementById("castDeviceList");
 const castStatus = document.getElementById("castStatus");
 const castRescanButton = document.getElementById("castRescanButton");
 const castStopButton = document.getElementById("castStopButton");
+const castPinBlock = document.getElementById("castPinBlock");
+const castPinLabel = document.getElementById("castPinLabel");
+const castPinInput = document.getElementById("castPinInput");
+const castPinSubmitButton = document.getElementById("castPinSubmitButton");
 const audioPanelTitle = document.getElementById("audioPanelTitle");
 const audioTrackList = document.getElementById("audioTrackList");
 const subtitleTrackList = document.getElementById("subtitleTrackList");
@@ -1124,6 +1128,17 @@ const renderCastModal = () => {
     const status = String(state.castStatusMessage || "").trim();
     castStatus.textContent = status;
     castStatus.hidden = !status;
+  }
+  // A cast waiting on a code looks exactly like one that is hanging, so the
+  // field is the status: it appears the moment the push needs the code.
+  if (castPinBlock) {
+    const pinRequired = Boolean(state.castPinRequired);
+    castPinBlock.hidden = !pinRequired;
+    if (pinRequired) {
+      if (castPinLabel) castPinLabel.textContent = state.castPinLabel || "Enter the code shown on the screen";
+      if (castPinSubmitButton) castPinSubmitButton.textContent = state.castPinSubmitLabel || "Pair";
+      if (castPinInput && document.activeElement !== castPinInput) castPinInput.focus();
+    }
   }
   if (!castDeviceList) return;
   castDeviceList.textContent = "";
@@ -2947,6 +2962,31 @@ if (castStopButton) {
     event.stopPropagation();
     send("castStop", 0);
   });
+}
+if (castPinSubmitButton) {
+  const submitPin = event => {
+    if (event) event.stopPropagation();
+    const code = String(castPinInput ? castPinInput.value : "").replace(/\D/g, "").trim();
+    if (!code) return;
+    // One event per digit: the bridge carries a number, so a code with a leading
+    // zero would not survive being sent as a single value.
+    for (const digit of code) send("castPinDigit", Number(digit));
+    send("castPinSubmit", 0);
+    if (castPinInput) castPinInput.value = "";
+  };
+  castPinSubmitButton.addEventListener("click", submitPin);
+  if (castPinInput) {
+    castPinInput.addEventListener("keydown", event => {
+      // Enter submits and must not reach the player's keyboard shortcuts, which
+      // would toggle playback under the panel.
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        submitPin(event);
+      }
+      event.stopPropagation();
+    });
+  }
 }
 
 subtitleDelayMinus.addEventListener("click", event => {

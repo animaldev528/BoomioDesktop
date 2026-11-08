@@ -268,6 +268,16 @@ internal class PlayerScreenRuntime(
     /** The device a push failed on, and the reason — kept apart for the same reason. */
     var castErrorDeviceName by mutableStateOf<String?>(null)
     var castErrorReason by mutableStateOf<String?>(null)
+    /**
+     * True while a cast is blocked on the code its screen is displaying. Set
+     * before the cast is started, because the cast itself suspends until the code
+     * arrives and cannot report anything until then.
+     */
+    var castPinRequired by mutableStateOf(false)
+    /** The screen that asked for that code, for the field's wording. */
+    var castPinDeviceName by mutableStateOf<String?>(null)
+    /** Digits typed so far, collected because the bridge carries one Double per event. */
+    var castPinDigits by mutableStateOf(StringBuilder())
     var streamMediaInfo by mutableStateOf(PlayerMediaInfo())
     var playbackEngineOverride by mutableStateOf<AndroidPlaybackEngine?>(null)
     var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())

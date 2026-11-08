@@ -119,6 +119,14 @@ data class PlayerControlsState(
     /** Renderers found by the last scan, in the order they were offered. */
     val castDevices: List<PlayerControlCastDevice> = emptyList(),
     val castActiveDeviceId: String? = null,
+    /**
+     * True while a cast is waiting for the code its screen is showing. The panel
+     * puts a numeric field up instead of leaving the row spinning: a cast waiting
+     * for a code and a cast that has hung look identical otherwise.
+     */
+    val castPinRequired: Boolean = false,
+    val castPinLabel: String = "Enter the code shown on the screen",
+    val castPinSubmitLabel: String = "Pair",
     val pipPlaceholderTitle: String = "",
     val pipRestoreLabel: String = "",
     val pipWindowTitle: String = "",

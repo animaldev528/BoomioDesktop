@@ -3013,6 +3013,44 @@ button.action:focus-visible {
   padding: 12px 12px 4px;
 }
 
+/* The code an AirPlay television is showing. Same rail as the rest of the panel,
+   so it reads as part of the cast sheet rather than a dialog on top of it. */
+.cast-pin {
+  padding: 10px 12px 0;
+}
+
+.cast-pin-label {
+  display: block;
+  color: rgba(255, 255, 255, .82);
+  font-size: 13px;
+  line-height: 1.35;
+  margin-bottom: 8px;
+}
+
+.cast-pin-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cast-pin-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  background: rgba(255, 255, 255, .08);
+  color: #fff;
+  font-size: 16px;
+  letter-spacing: 4px;
+  text-align: center;
+}
+
+.cast-pin-input:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, .55);
+}
+
 .intro-form {
   display: flex;
   flex-direction: column;

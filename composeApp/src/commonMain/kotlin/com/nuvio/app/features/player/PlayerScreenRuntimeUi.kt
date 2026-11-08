@@ -297,6 +297,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         castScanning = castScanning,
         castStatusMessage = castStatusText(),
         castActiveDeviceId = castActiveDeviceId(),
+        castPinRequired = castPinRequired,
         castDevices = castDevices.map { device ->
             PlayerControlCastDevice(
                 label = device.name,
@@ -1147,6 +1148,17 @@ private fun PlayerScreenRuntime.handlePlayerControlsEvent(type: String, value: D
             castToDevice(device)
         }
         "castStop" -> stopCasting()
+        // The code the screen is showing, typed into the panel. The bridge that
+        // carries this event only has a Double payload, so a code sent as one
+        // number would lose a leading zero ("0123"). Digits arrive one at a time
+        // and `castPinSubmit` closes it, which keeps the code exact.
+        "castPinDigit" -> castPinDigits.append(value.toInt())
+        "castPinSubmit" -> {
+            val code = castPinDigits.toString()
+            castPinDigits.clear()
+            if (code.isNotEmpty()) CastController.submitPin(code)
+            castPinRequired = false
+        }
         else -> return false
     }
     return true
@@ -1413,6 +1425,13 @@ private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
     }
     castProgressDeviceName = device.name
     scope.launch {
+        // Asked before the push, not during it: the sender suspends inside the
+        // cast while it waits for the code, and nothing can be reported until it
+        // arrives — so the field has to be up before that call is made.
+        if (CastController.requiresPin(device)) {
+            castPinDeviceName = device.name
+            castPinRequired = true
+        }
         val streams = BoomioStreamResolver.resolveForCast(
             videoId = videoId,
             season = activeSeasonNumber,
@@ -1422,6 +1441,8 @@ private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
         val url = pickCastStream(streams, activeStreamTitle)?.url
         if (url.isNullOrBlank()) {
             castProgressDeviceName = null
+            castPinRequired = false
+            castPinDeviceName = null
             castErrorDeviceName = device.name
             castErrorReason = "no stream could be prepared for it"
             return@launch
@@ -1432,6 +1453,8 @@ private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
         playerController?.pause()
         val result = CastController.cast(device, url, title)
         castProgressDeviceName = null
+        castPinRequired = false
+        castPinDeviceName = null
         if (result.ok) {
             showCastPicker = false
         } else {

@@ -1251,6 +1251,18 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.swing)
                 implementation(libs.ktor.client.cio)
                 implementation("com.squareup.okhttp3:okhttp:4.12.0")
+                // AirPlay 2: the vendored sender the phone app already ships, unmodified
+                // apart from its tvOS timing patch. It owns pairing (SRP + PIN), the
+                // encrypted control channel and the video-v2 load, so the desktop side
+                // only has to discover receivers and collect the PIN.
+                implementation(project(":airkast-core"))
+                // JVM mDNS: an Apple TV advertises `_airplay._tcp` and answers no SSDP
+                // search, so the SSDP scan alone can never see it.
+                implementation("org.jmdns:jmdns:3.6.1")
+                // jmdns logs through SLF4J and throws NoClassDefFoundError without
+                // the API on the runtime classpath. Nothing provides a binding;
+                // SLF4J falls back to its no-op logger, which is what we want.
+                implementation("org.slf4j:slf4j-api:2.0.20")
                 // CastV2 speaks JSON over the CASTV2 frames. The sender is a port
                 // of the phone's, which used the platform's org.json, so keeping
                 // the library is what makes it a copy rather than a rewrite.

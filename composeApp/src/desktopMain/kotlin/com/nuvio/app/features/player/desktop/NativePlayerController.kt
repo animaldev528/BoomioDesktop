@@ -1539,6 +1539,12 @@ private fun PlayerControlsState.toControlsJson(isFullscreen: Boolean): String =
         append(',')
         appendJsonField("castActiveDeviceId", castActiveDeviceId.orEmpty())
         append(',')
+        appendJsonField("castPinRequired", castPinRequired)
+        append(',')
+        appendJsonField("castPinLabel", castPinLabel)
+        append(',')
+        appendJsonField("castPinSubmitLabel", castPinSubmitLabel)
+        append(',')
         appendJsonArrayField("castDevices", castDevices) { appendCastDeviceJson(it) }
         append(',')
         appendJsonField("durationMs", durationMs)
