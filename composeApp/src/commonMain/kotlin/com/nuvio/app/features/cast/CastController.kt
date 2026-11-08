@@ -132,7 +132,12 @@ object CastController {
      * must not lose the answer, because the television may have started playing
      * regardless and [_active] is the only thing that remembers it.
      */
-    suspend fun cast(device: CastDevice, url: String, title: String): CastPlayResult {
+    suspend fun cast(
+        device: CastDevice,
+        url: String,
+        title: String,
+        sourceLabel: String? = null,
+    ): CastPlayResult {
         val platform = platform ?: return CastPlayResult.failed("Casting is not available in this build")
         val previous = _active.value
         if (previous != null && previous.device.id != device.id) {
@@ -146,7 +151,7 @@ object CastController {
             }
             _active.value = null
         }
-        val result = withContext(NonCancellable) { platform.play(device, url, title) }
+        val result = withContext(NonCancellable) { platform.play(device, url, title, sourceLabel) }
         if (result.ok) _active.value = ActiveCast(device, title)
         return result
     }
