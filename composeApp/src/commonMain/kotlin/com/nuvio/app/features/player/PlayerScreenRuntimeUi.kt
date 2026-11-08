@@ -27,6 +27,7 @@ import com.nuvio.app.features.boomio.BoomioStreamResolver
 import com.nuvio.app.features.cast.CastController
 import com.nuvio.app.features.cast.CastDevice
 import com.nuvio.app.features.cast.CastPickerDialog
+import com.nuvio.app.features.cast.CastPlayResult
 import com.nuvio.app.features.cast.CastTarget
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
@@ -1462,7 +1463,15 @@ private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
             // start one the viewer had deliberately paused.
             val wasPlaying = playbackSnapshot.isPlaying
             playerController?.pause()
-            val result = CastController.cast(device, url, title)
+            // A transport that throws instead of reporting a failure used to end
+            // this coroutine outright: the panel kept the spinner, the local
+            // player stayed paused, and the viewer was told nothing. Any throw
+            // becomes the reason shown in the panel.
+            val result = runCatching { CastController.cast(device, url, title) }
+                .getOrElse { t ->
+                    if (t is kotlin.coroutines.cancellation.CancellationException) throw t
+                    CastPlayResult.failed(t.message ?: (t::class.simpleName ?: "the cast failed"))
+                }
             castProgressDeviceName = null
             castPinRequired = false
             castPinDeviceName = null
@@ -1473,6 +1482,15 @@ private fun PlayerScreenRuntime.castToDevice(device: CastDevice) {
                 castErrorReason = result.reason ?: "the screen did not accept the stream"
                 if (wasPlaying) playerController?.play()
             }
+        } catch (t: Throwable) {
+            // Whatever else went wrong before the push — resolving the stream,
+            // say — must not leave the spinner up with no explanation.
+            if (t is kotlin.coroutines.cancellation.CancellationException) throw t
+            castProgressDeviceName = null
+            castPinRequired = false
+            castPinDeviceName = null
+            castErrorDeviceName = device.name
+            castErrorReason = t.message ?: (t::class.simpleName ?: "the cast failed")
         } finally {
             // The panel may have been closed mid-cast; a stale callback would put
             // a code field up over a screen that is no longer casting.

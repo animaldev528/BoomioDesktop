@@ -1,6 +1,7 @@
 package com.nuvio.app.features.cast
 
 import co.touchlab.kermit.Logger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -27,20 +28,59 @@ internal suspend fun playOnRenderer(
         "cast: ${device.protocol}/${device.name} media=${redact(rendererUrl)} " +
             "query=${rendererUrl.contains("token=")} remuxed=${rendererUrl != url}"
     }
-    val result = when (device.protocol) {
-        CastProtocol.DLNA -> dlnaPlay(device, url, title)
-        CastProtocol.CAST -> CastV2.play(device, rendererUrl, title)
-        // A Roku has no generic media renderer: playback is a deep link into a
-        // URL-capable channel. See RokuEcp for why that channel is Media Assistant.
-        CastProtocol.ROKU -> RokuEcp.play(device, rendererUrl, title)
-        // AirPlay needs a paired AirPlay 2 session (SRP + PIN, then Curve25519 +
-        // ChaCha20 per control channel). `DesktopAirPlay` drives the vendored
-        // sender that owns that handshake; a bare `POST /play` is answered 403 by
-        // an Apple TV without it (measured, tvOS 26.6.1).
-        CastProtocol.AIRPLAY -> DesktopAirPlay.play(device, rendererUrl)
+    // Before anything else reaches the receiver: which screen, by which protocol,
+    // and which stream — minus the token. Written to disk as well as logged,
+    // because a Windows desktop has no console and "nothing happened" has to be
+    // answerable after the fact.
+    castTrace(
+        "cast ${device.protocol}/${device.name} ip=${device.ip}:${device.port} " +
+            "media=${redact(rendererUrl)} token=${rendererUrl.contains("token=")} " +
+            "remuxed=${rendererUrl != url}",
+    )
+    val result = try {
+        when (device.protocol) {
+            CastProtocol.DLNA -> dlnaPlay(device, url, title)
+            CastProtocol.CAST -> CastV2.play(device, rendererUrl, title)
+            // A Roku has no generic media renderer: playback is a deep link into a
+            // URL-capable channel. See RokuEcp for why that channel is Media Assistant.
+            CastProtocol.ROKU -> RokuEcp.play(device, rendererUrl, title)
+            // AirPlay needs a paired AirPlay 2 session (SRP + PIN, then Curve25519 +
+            // ChaCha20 per control channel). `DesktopAirPlay` drives the vendored
+            // sender that owns that handshake; a bare `POST /play` is answered 403 by
+            // an Apple TV without it (measured, tvOS 26.6.1).
+            CastProtocol.AIRPLAY -> DesktopAirPlay.play(device, rendererUrl)
+        }
+    } catch (t: Throwable) {
+        // A transport that throws instead of returning a failure used to end the
+        // cast silently — the caller's coroutine died with the user's player
+        // already paused and no reason on screen. Turn it into one.
+        if (t is CancellationException) throw t
+        castTrace("cast threw ${t::class.simpleName}: ${t.message}")
+        log.w(t) { "cast to ${device.protocol}/${device.name} threw" }
+        CastPlayResult.failed(t.message ?: (t::class.simpleName ?: "the cast failed"))
     }
-    if (!result.ok) log.w { "cast to ${device.protocol}/${device.name} (${device.ip}) failed: ${result.reason}" }
+    if (result.ok) {
+        castTrace("cast ok ${device.protocol}/${device.name}")
+    } else {
+        castTrace("cast failed ${device.protocol}/${device.name}: ${result.reason}")
+        log.w { "cast to ${device.protocol}/${device.name} (${device.ip}) failed: ${result.reason}" }
+    }
     result
+}
+
+/**
+ * One line per cast event, appended to `cast.log` beside the stored pairings.
+ *
+ * A cast fails on a television or set-top box the developer cannot see, and the
+ * player has no console on a Windows desktop: without a file, "the code appears
+ * and nothing happens" is all there is to go on.
+ */
+internal fun castTrace(line: String) {
+    runCatching {
+        val file = com.nuvio.app.core.storage.DesktopStorage.rootDir.resolve("cast.log").toFile()
+        file.parentFile?.mkdirs()
+        file.appendText("${java.time.LocalDateTime.now()} $line\n")
+    }
 }
 
 /**

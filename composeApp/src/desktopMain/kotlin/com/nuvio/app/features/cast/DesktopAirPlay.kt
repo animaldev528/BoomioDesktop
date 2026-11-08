@@ -114,13 +114,7 @@ internal object DesktopAirPlay {
      * console on a Windows desktop: without a file, "the code appears and nothing
      * happens" is all there is to go on.
      */
-    private fun trace(line: String) {
-        runCatching {
-            val file = DesktopStorage.rootDir.resolve("cast.log").toFile()
-            file.parentFile?.mkdirs()
-            file.appendText("${java.time.LocalDateTime.now()} $line\n")
-        }
-    }
+    private fun trace(line: String) = castTrace("airplay $line")
 
     /**
      * True when playing on [device] will ask for a code: the receiver says it
