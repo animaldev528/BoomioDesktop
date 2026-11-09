@@ -315,9 +315,14 @@ jobs:
           # which is how the first green build was reported as red.)
           sudo flatpak install -y --system --no-deps --noninteractive "boomio-linux-x86_64-${stamp}.flatpak"
           sudo flatpak info com.nuvio.media.desktop | head -n 6
-          # The sandbox is the only place that proves the launcher's target exists at the path the
-          # launcher uses -- the host sees the image under /var/lib/flatpak, not /app.
-          sudo flatpak run --command=sh com.nuvio.media.desktop -c "test -x /app/opt/${APP_NAME}/bin/${APP_EXE} && echo 'app entry point present inside the sandbox'"
+          # Check the deployed tree on the host rather than running the app: `flatpak run` refuses
+          # to run under `sudo`, and a GUI launch is not what this is asking. The deploy directory
+          # is the bundle's filesystem, so `/app` from the sandbox is `files/app` here.
+          installed="$(sudo flatpak info --show-location com.nuvio.media.desktop)"
+          test -x "${installed}/files/app/bin/nuvio"
+          test -x "${installed}/files/app/opt/${APP_NAME}/bin/${APP_EXE}"
+          grep -q "opt/${APP_NAME}/bin/${APP_EXE}" "${installed}/files/app/bin/nuvio"
+          echo "installed entry point: ${installed}/files/app/opt/${APP_NAME}/bin/${APP_EXE}"
 
           ls -lh "boomio-linux-x86_64-${stamp}.flatpak"
           echo "BUNDLE=boomio-linux-x86_64-${stamp}.flatpak" >> "$GITHUB_ENV"
