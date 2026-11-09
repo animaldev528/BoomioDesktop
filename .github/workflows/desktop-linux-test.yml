@@ -306,11 +306,18 @@ jobs:
           flatpak-builder --repo=flatpak-repo --force-clean flatpak-build flatpak/nuvio-flatpak.yml
           flatpak build-bundle flatpak-repo "boomio-linux-x86_64-${stamp}.flatpak" com.nuvio.media.desktop
 
-          # The bundle is only worth uploading if it parses as an OSTree ref. Importing it into a
-          # throwaway repo is the cheapest check that does not need a desktop.
-          mkdir -p verify-repo
-          flatpak build-import-bundle verify-repo "boomio-linux-x86_64-${stamp}.flatpak"
-          test -x flatpak-build/files/app/bin/nuvio
+          # The bundle is only worth uploading if it installs. Do what a user does, with the
+          # runtime the flatpak toolchain step already put on the system. `--no-deps` keeps it from
+          # reaching for the codecs-extra extension, which is declared but optional.
+          #
+          # (`flatpak build-import-bundle` looks like the cheaper check and is not one: it needs an
+          # already-initialised OSTree repo, and without one it fails with "opendir(objects)" --
+          # which is how the first green build was reported as red.)
+          sudo flatpak install -y --system --no-deps --noninteractive "boomio-linux-x86_64-${stamp}.flatpak"
+          sudo flatpak info com.nuvio.media.desktop | head -n 6
+          # The sandbox is the only place that proves the launcher's target exists at the path the
+          # launcher uses -- the host sees the image under /var/lib/flatpak, not /app.
+          sudo flatpak run --command=sh com.nuvio.media.desktop -c "test -x /app/opt/${APP_NAME}/bin/${APP_EXE} && echo 'app entry point present inside the sandbox'"
 
           ls -lh "boomio-linux-x86_64-${stamp}.flatpak"
           echo "BUNDLE=boomio-linux-x86_64-${stamp}.flatpak" >> "$GITHUB_ENV"
