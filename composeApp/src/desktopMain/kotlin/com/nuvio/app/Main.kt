@@ -23,6 +23,8 @@ import com.nuvio.app.core.deeplink.handleAppUrl
 import com.nuvio.app.core.device.DeviceCapabilityReporter
 import com.nuvio.app.core.diagnostics.SentryInitializer
 import com.nuvio.app.core.mtls.MtlsRegistration
+import com.nuvio.app.core.network.BoomioServerOverride
+import com.nuvio.app.core.overlay.OverlayEndpointDiscovery
 import com.nuvio.app.core.overlay.OverlayEnrollmentController
 import com.nuvio.app.core.overlay.OverlayRelay
 import com.nuvio.app.core.overlay.OverlaySession
@@ -70,6 +72,14 @@ fun main(args: Array<String>) {
     BoomioConfig.boomioBaseUrl = BoomioRuntimeConfig.BASE_URL
     BoomioConfig.bsmBaseUrl = BoomioRuntimeConfig.BSM_BASE_URL
     BoomioConfig.companionBaseUrl = BoomioRuntimeConfig.COMPANION_URL
+    // A server typed on the first-run screen wins over the build's endpoints. Applied here,
+    // before anything reads these values, so a restart keeps the choice rather than silently
+    // reverting to whatever the Windows build was compiled with.
+    BoomioServerOverride.load()
+    // Registers the overlay ladder's manual-entry uplink before the first composition. Mobile
+    // does this in `MainActivity.onCreate`; without it the "Server address" control on the
+    // first-run gate is composed disabled and silently does nothing on click.
+    OverlayEndpointDiscovery.initialize()
     // Loads a persisted `bs_ses_*` token before any UI can ask for one; a no-op on a first run.
     BoomioSessionRepository.initialize()
     // Applies last run's overlay assignment synchronously, so a cold start off-network still

@@ -53,20 +53,19 @@ class DeviceSetupGateTest {
     }
 
     /**
-     * ⚠️ The field is on the first frame, while the ladder is still `Idle` — that is
-     * `alwaysOfferManual`, and it is the difference between an offer and a dead end. Desktop's
-     * ladder has one rung and no discovery, so a machine whose enrollment never landed never
-     * reaches `NeedsManual` on its own; if the field were tied to that state the user would have
-     * nothing to type into and no way to get an address into the app.
+     * ⚠️ The server field is on the first frame, not behind the pairing flow. It is the only way
+     * to say which box this install belongs to — the Windows build bakes its endpoints, so a user
+     * handed a build aimed at the wrong server otherwise has no door at all. The field being
+     * present (and enabled) is the whole point of the row.
      */
     @Test
-    fun `the manual endpoint field is offered before any walk has failed`() {
+    fun `the server field is offered before any pairing has happened`() {
         compose.setContent {
             NuvioTheme {
                 DeviceSetupGate(onSkip = {})
             }
         }
 
-        compose.onNodeWithText("Use this address").assertIsDisplayed()
+        compose.onNodeWithText("Use this server").assertIsDisplayed()
     }
 }

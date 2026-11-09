@@ -2567,6 +2567,10 @@
     <string name="overlay_manual_hint">host or host:port</string>
     <string name="overlay_manual_label">Server address</string>
     <string name="overlay_manual_submit">Use this address</string>
+    <string name="desktop_server_hint">boomiopi.duckdns.org</string>
+    <string name="desktop_server_action">Use this server</string>
+    <string name="desktop_server_checking">Connecting…</string>
+    <string name="desktop_server_connected">Using %1$s</string>
     <string name="compose_settings_page_vpn">VPN</string>
     <string name="compose_settings_root_vpn_description">This device’s WireGuard tunnel</string>
     <string name="vpn_tunnel_title">Private tunnel</string>

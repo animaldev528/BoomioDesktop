@@ -19,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.nuvio.app.core.overlay.OverlayEndpointStatusRow
 import com.nuvio.app.core.ui.nuvio
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.device_setup_description
@@ -41,10 +40,11 @@ import org.jetbrains.compose.resources.stringResource
  * ⚠️ **There is no provisioning channel here, so this walks the LAN path.** Mobile's
  * `startLink` first tries the channel — a forwarded port that needs no prior credential — because
  * a phone off the LAN has nothing else. Desktop has no such transport in this fork, so every
- * attempt dials [BoomioConfig.companionRestBaseUrl], which is baked at build time from
- * `BOOMIO_COMPANION_URL` (or derived from `BOOMIO_BASE_URL`). A build with neither is *inert*:
- * [BoomioSessionRepository.startLink] refuses and reports it rather than dialing a bad URL. That is
- * the correct behaviour for a stock build and the reason the skip below is not optional.
+ * attempt dials [BoomioConfig.companionRestBaseUrl]: the server typed on this screen when there
+ * is one, otherwise the value baked at build time from `BOOMIO_COMPANION_URL` (or derived from
+ * `BOOMIO_BASE_URL`). A build with neither is *inert*: [BoomioSessionRepository.startLink]
+ * refuses and reports it rather than dialing a bad URL. That is the correct behaviour for a stock
+ * build and the reason the skip below is not optional.
  *
  * ⚠️ **The device-code flow needs no account, and that is deliberate.** `startLink` is not gated
  * on `AuthState.Authenticated`, so a signed-out device runs the same flow; a signed-in one may
@@ -58,11 +58,11 @@ import org.jetbrains.compose.resources.stringResource
  * session, and it moves on by itself. `onSkip` exists only for the case where there is nothing to
  * wait for.
  *
- * ⚠️ **The endpoint row is on this screen because pairing is not the first thing that has to
- * work — reaching the server is.** A device that cannot find the overlay endpoint has nothing to
- * pair *against*. `alwaysOfferManual` shows the field from the first frame rather than only once
- * the walk has failed, which on desktop — where the ladder has one rung and no discovery — is the
- * difference between an offer and a dead end.
+ * ⚠️ **The server field is on this screen because pairing is not the first thing that has to
+ * work — reaching the server is.** A device that cannot reach its server has nothing to pair
+ * *against*, and on a build whose endpoints are compiled in there is otherwise no way to say
+ * which box that is. [ServerAddressRow] sets all of them from one address and remembers it; the
+ * overlay row still lives on the VPN settings page for the tunnel's own diagnostics.
  */
 @Composable
 internal fun DeviceSetupGate(
@@ -92,13 +92,12 @@ internal fun DeviceSetupGate(
         )
 
         Spacer(Modifier.height(16.dp))
-        // ⚠️ Below the card and above the skip, because it is the *other* way to get moving: the
-        // card's Connect is blocked on an address that this row is what supplies.
-        OverlayEndpointStatusRow(
-            modifier = Modifier.fillMaxWidth(),
-            showUnavailable = true,
-            alwaysOfferManual = true,
-        )
+        // ⚠️ **The server first, pairing second — and that order is the screen's whole point.**
+        // A build bakes its endpoints, so a fresh install with no session used to be welded to
+        // whatever box the build named, with no way to say "no, this one". The address typed
+        // here replaces all of them (account, media plane, companion, telemetry) and is
+        // remembered, so the pair that follows is aimed at the server the user chose.
+        ServerAddressRow(modifier = Modifier.fillMaxWidth())
 
         Spacer(Modifier.height(16.dp))
         TextButton(onClick = onSkip) {

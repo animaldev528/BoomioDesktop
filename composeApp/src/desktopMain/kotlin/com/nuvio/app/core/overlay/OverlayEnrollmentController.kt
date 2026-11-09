@@ -63,6 +63,18 @@ internal object OverlayEnrollmentController {
     private const val KEY_DEVICE_NAME = "device_name"
     private const val KEY_ISSUED_FOR = "issued_for_public_key"
 
+    private val FORGET_KEYS = listOf(
+        KEY_ADDRESS,
+        KEY_SERVER_PUBKEY,
+        KEY_ENDPOINT,
+        KEY_LAN_ENDPOINT,
+        KEY_WAN_ENDPOINT,
+        KEY_OVERLAY_CIDR,
+        KEY_MTU,
+        KEY_DEVICE_NAME,
+        KEY_ISSUED_FOR,
+    )
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _state = MutableStateFlow<OverlayEnrollmentState>(OverlayEnrollmentState.Idle)
@@ -132,6 +144,20 @@ internal object OverlayEnrollmentController {
             }
         }
         return result
+    }
+
+    /**
+     * Drops the assignment cached for a server this install has just left.
+     *
+     * ⚠️ **The cache is keyed to the device, not to the server.** Restoring it needs no network,
+     * which is what makes a cold start off-LAN work — and exactly why a server switch has to
+     * erase it: otherwise the next launch brings the tunnel back up against the old box while
+     * the rest of the app talks to the new one. Enrollment re-runs by itself as soon as the new
+     * server issues a session, because that is what [initialize]'s session watcher is for.
+     */
+    fun forget() {
+        store?.removeAll(FORGET_KEYS)
+        _state.value = OverlayEnrollmentState.Idle
     }
 
     private fun apiOrNull(): OverlayEnrollmentApi? {

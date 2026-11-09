@@ -433,10 +433,25 @@ object BoomioSessionRepository {
             } catch (error: Throwable) {
                 log.w(error) { "Boomio unpair failed (non-fatal)" }
             }
-            BoomioSessionStorage.clearSessionToken()
-            BoomioSessionStorage.clearPairedDeviceId()
-            _session.value = null
+            forgetLocalSession()
         }
+    }
+
+    /**
+     * Forgets the pairing locally, without telling the server.
+     *
+     * Used when this install is being pointed at a *different* box. [unlink]'s unpair POST would
+     * be aimed at the server the user has just left, and that server's idea of this device stops
+     * mattering the moment the endpoints move — so the switch must not wait on it, or fail
+     * because of it.
+     */
+    fun forgetLocalSession() {
+        linkJob?.cancel()
+        linkJob = null
+        BoomioSessionStorage.clearSessionToken()
+        BoomioSessionStorage.clearPairedDeviceId()
+        _session.value = null
+        _linkState.value = BoomioLinkState.Idle
     }
 
     private suspend fun requestDeviceCode(): DeviceRequestResponse {
