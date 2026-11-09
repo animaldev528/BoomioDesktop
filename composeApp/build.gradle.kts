@@ -1050,6 +1050,20 @@ tasks.withType<Jar>().configureEach {
         from(layout.projectDirectory.file("src/desktopMain/native/linux/engine/libnuvio_engine.so")) {
             into("native/linux")
         }
+        // The WireGuard tunnel library, on the same terms as the Windows block above:
+        // `overlaywg/build-desktop.sh` writes `build/linux-amd64/liboverlaywg.so`, and a host
+        // that has not run that script simply has no directory here, which in a `from { include }`
+        // is a no-op rather than an error. Without it a packaged Linux install runs as a plain
+        // media client and every boomio feature is inert: enrollment needs the device key that
+        // this library mints, and the tunnel, the relay and the certificate all hang off
+        // enrollment. Nothing copied it until the Flatpak build needed it, so the Linux bundle
+        // had no tunnel in it at all.
+        // `rootProject`, not `layout.projectDirectory`: this script's project directory is
+        // `composeApp/`, and `overlaywg/` sits beside it at the repository root.
+        from(rootProject.layout.projectDirectory.dir("overlaywg/build/linux-amd64")) {
+            include("liboverlaywg.so")
+            into("native/linux")
+        }
     }
 }
 
