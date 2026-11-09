@@ -120,7 +120,7 @@ jobs:
         run: |
           # The whole point of this workflow. `build-desktop.sh` reads `uname -s` and takes its
           # `Linux` branch to `build/linux-amd64/liboverlaywg.so`.
-          CGO_ENABLED=1 ./overlaywg/build-desktop.sh
+          CGO_ENABLED=1 sh ./overlaywg/build-desktop.sh
           so="overlaywg/build/linux-amd64/liboverlaywg.so"
           if [[ ! -f "${so}" ]]; then
             echo "overlaywg/build-desktop.sh did not produce ${so}" >&2
