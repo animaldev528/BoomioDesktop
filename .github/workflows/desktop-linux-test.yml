@@ -21,6 +21,16 @@ name: Desktop Linux (test build)
 # off enrollment. `overlaywg/build-desktop.sh` already knows how to build it for `Linux`; nothing
 # had ever called it on a Linux runner, and `desktopJar` did not copy the result into the bundle.
 on:
+  # ⚠️ The `push` trigger is how this workflow gets registered at all. GitHub only dispatches a
+  # workflow whose file exists on the repository's default branch, so on a branch that has not
+  # landed there yet the dispatch API answers 404 -- which is exactly what happened the first time.
+  # A push-triggered workflow runs on any branch, so this is the one route that needs no merge.
+  # The path filter keeps it from firing on code pushes: it runs when *this file* changes, which
+  # is precisely when a fresh build of it is worth having. Once the file is on `Dev`, dispatch
+  # works too and this trigger can be dropped.
+  push:
+    branches: [feat/boomio-desktop]
+    paths: ['.github/workflows/desktop-linux-test.yml']
   workflow_dispatch:
     inputs:
       boomio_base_url:
@@ -67,9 +77,14 @@ jobs:
       # local.properties and falls back to the environment. That is what bakes the deployment into
       # BoomioConfig. The first-run "Server address" field can also set it at runtime, so a baked
       # value is a convenience here rather than the only way in.
-      BOOMIO_BASE_URL: ${{ inputs.boomio_base_url }}
+      #
+      # The fallback covers the push trigger, which has no `inputs`: a build kicked off that way
+      # is a build for the house box, the only deployment this fork exists to talk to.
+      BOOMIO_BASE_URL: ${{ inputs.boomio_base_url || 'https://boomiopi.duckdns.org' }}
       NUVIO_SUPABASE_URL: ${{ inputs.supabase_url }}
       NUVIO_SUPABASE_ANON_KEY: ${{ inputs.supabase_anon_key }}
+      # Same reasoning: a push-triggered run gets the default, a dispatched one gets its choice.
+      PACKAGE_AS: ${{ inputs.package_as || 'flatpak' }}
 
     steps:
       - name: Check out source
@@ -229,7 +244,7 @@ jobs:
           echo "app image verified at ${app_root}"
 
       - name: Install Flatpak toolchain
-        if: inputs.package_as == 'flatpak'
+        if: env.PACKAGE_AS == 'flatpak'
         run: |
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder desktop-file-utils
@@ -249,7 +264,7 @@ jobs:
           sudo flatpak install -y --system flathub org.freedesktop.Platform.VAAPI.Nvidia//25.08 || true
 
       - name: Build Flatpak bundle
-        if: inputs.package_as == 'flatpak'
+        if: env.PACKAGE_AS == 'flatpak'
         shell: bash
         run: |
           set -euo pipefail
@@ -281,7 +296,7 @@ jobs:
           echo "ARTIFACT_NAME=boomio-linux-x64-${stamp}-flatpak" >> "$GITHUB_ENV"
 
       - name: Collect the loose app image
-        if: inputs.package_as == 'bundle'
+        if: env.PACKAGE_AS == 'bundle'
         shell: bash
         run: |
           set -euo pipefail
