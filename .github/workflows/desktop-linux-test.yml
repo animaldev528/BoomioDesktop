@@ -1,0 +1,302 @@
+name: Desktop Linux (test build)
+
+# A hand-run Linux build of this fork, for trying it on a real machine.
+#
+# ⚠️ **Why this exists next to `desktop-release.yml` rather than inside it.** That workflow is
+# upstream's signing and publishing pipeline: it pulls `local.properties` out of a repository
+# secret, uploads source bundles to Sentry, refuses to run when any of that is missing, stalls
+# the Linux jobs behind a `metadata` job, and gates on a `desktop-release` environment. None of it
+# is configured on this fork, and none of it is needed to answer "does the tunnel work on Linux".
+# This one takes its deployment settings as inputs, builds unsigned, and hands back a `.flatpak`.
+#
+# ⚠️ **Flatpak is the parity target, and the reason is libmpv.** The Windows build bundles its
+# libmpv runtime. A `.deb` here would not: it links the host's `libmpv2`, so playback would depend
+# on what the user installed. `scripts/linux/nuvio-flatpak.yml` compiles mpv 0.41 into the bundle
+# instead, on the GNOME runtime that already carries webkit2gtk-4.1 and GTK 3 — which is what the
+# player bridge links against.
+#
+# ⚠️ **The step that matters is `Build the overlay tunnel library`.** Without `liboverlaywg.so`
+# the app installs and runs as a plain media client and every boomio feature is inert: enrollment
+# wants the device key that library mints, and the tunnel, the relay and the certificate all hang
+# off enrollment. `overlaywg/build-desktop.sh` already knows how to build it for `Linux`; nothing
+# had ever called it on a Linux runner, and `desktopJar` did not copy the result into the bundle.
+on:
+  workflow_dispatch:
+    inputs:
+      boomio_base_url:
+        description: "Media-plane base of the box: the origin plus the path bsf lives at, e.g. https://home.duckdns.org/bsf. An origin alone is normalised to <origin>/bsf (required for pairing and casting)"
+        required: true
+        type: string
+      supabase_url:
+        description: "Supabase URL for sign-in (optional; blank leaves sign-in inert)"
+        required: false
+        type: string
+        default: ""
+      supabase_anon_key:
+        description: "Supabase anon key (optional; needed for sign-in)"
+        required: false
+        type: string
+        default: ""
+      package_as:
+        description: "flatpak = a .flatpak bundle you can install; bundle = the loose app image as a tar.gz, for debugging a launch failure"
+        required: true
+        type: choice
+        options:
+          - flatpak
+          - bundle
+        default: flatpak
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-linux-test-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    name: Linux x64 (unsigned)
+    # ⚠️ Not `ubuntu-latest`: the player bridge needs `libwebkit2gtk-4.1-dev`, which 22.04 does not
+    # have (it ships 4.0 only). Pinning the image keeps a future `latest` from silently breaking it.
+    runs-on: ubuntu-24.04
+    # The Flatpak leg compiles libmpv, libplacebo, libass and uchardet from source inside the
+    # GNOME SDK. Twenty-odd minutes is normal on a four-core runner; this is headroom, not a bet.
+    timeout-minutes: 180
+    env:
+      # Read by `runtimeConfigValue` in composeApp/build.gradle.kts, which prefers
+      # local.properties and falls back to the environment. That is what bakes the deployment into
+      # BoomioConfig. The first-run "Server address" field can also set it at runtime, so a baked
+      # value is a convenience here rather than the only way in.
+      BOOMIO_BASE_URL: ${{ inputs.boomio_base_url }}
+      NUVIO_SUPABASE_URL: ${{ inputs.supabase_url }}
+      NUVIO_SUPABASE_ANON_KEY: ${{ inputs.supabase_anon_key }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Install Linux build dependencies
+        # Provides libmpv-dev, libwebkit2gtk-4.1-dev, GTK 3 and X11 headers for
+        # `buildLinuxPlayerBridge`, plus the toolchain for everything else.
+        run: |
+          bash ./scripts/linux/install-desktop-build-dependencies.sh
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        # Pinned to a full version, not `@v6`: this repository publishes `v6.x.y` patch tags and no
+        # floating major tag, so `@v6` resolves to nothing and the job dies before it builds.
+        uses: gradle/actions/setup-gradle@v6.4.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          # ⚠️ Not `go version` from the image: `overlaywg/go.mod` declares its own, and reading it
+          # from the module keeps the two from drifting.
+          go-version-file: overlaywg/go.mod
+          cache: false
+
+      - name: Build the overlay tunnel library
+        shell: bash
+        run: |
+          # The whole point of this workflow. `build-desktop.sh` reads `uname -s` and takes its
+          # `Linux` branch to `build/linux-amd64/liboverlaywg.so`.
+          CGO_ENABLED=1 ./overlaywg/build-desktop.sh
+          so="overlaywg/build/linux-amd64/liboverlaywg.so"
+          if [[ ! -f "${so}" ]]; then
+            echo "overlaywg/build-desktop.sh did not produce ${so}" >&2
+            exit 1
+          fi
+          echo "built ${so}: $(wc -c < "${so}") bytes"
+          # Prove the C ABI is really there rather than trusting the byte count. These are the ten
+          # names OverlayWgBinding.kt resolves through JNA, spelled exactly as `//export` writes
+          # them -- `OverlayWg_`, not `overlaywg_`.
+          for sym in OverlayWg_GenerateKeypair OverlayWg_Up OverlayWg_Down OverlayWg_Status \
+                     OverlayWg_Dial OverlayWg_Read OverlayWg_Write OverlayWg_Close \
+                     OverlayWg_LastError OverlayWg_Free; do
+            if ! grep -aq "$sym" "${so}"; then
+              echo "The .so does not export ${sym}." >&2
+              exit 1
+            fi
+          done
+          echo "all ten overlaywg exports present"
+
+      # ⚠️ `BOOMIO_BASE_URL` is the **media plane**, not the box's origin: `BoomioStreamResolver`
+      # appends `/find/...` to it, and this deployment collapses every service onto one origin told
+      # apart by path (`…/bsf`, `…/bsc`, `…/bsm`). Built from the bare origin, `/find` returns the
+      # dashboard's HTML with a 404, no streams parse out of it, and casting fails with "no stream
+      # could be prepared" -- and `bsmTelemetryBaseUrl`, which derives from the `/bsf` sibling, comes
+      # out blank, so the device never reports in.
+      - name: Resolve media-plane URL
+        id: media
+        shell: bash
+        run: |
+          base="${BOOMIO_BASE_URL%/}"
+          rest="${base#*://}"
+          if [ "$rest" = "$base" ]; then
+            echo "::error::BOOMIO_BASE_URL must start with http:// or https://"
+            exit 1
+          fi
+          if [ "${rest#*/}" = "$rest" ]; then
+            base="$base/bsf"
+            echo "No path in the input; using the collapsed edge's media plane at ${base}"
+          fi
+          echo "url=${base}" >> "$GITHUB_OUTPUT"
+          echo "media plane: ${base}"
+
+      - name: Check the media plane answers
+        shell: bash
+        # Not fatal: a runner that cannot reach the house says nothing about the machine the build
+        # is for. But a base that 404s produces a build whose cast button can never work, so it is
+        # worth saying loudly at build time instead of discovering it from the player.
+        run: |
+          url="${{ steps.media.outputs.url }}/find/tt0111161"
+          code="$(curl -s -o media.json -w '%{http_code}' --max-time 20 "${url}" || true)"
+          code="${code:-000}"
+          if [ "${code}" != "200" ]; then
+            echo "::warning::${url} answered ${code}; casting and boomio streams will fail in this build"
+          else
+            echo "${url} answered 200 ($(wc -c < media.json) bytes)"
+          fi
+
+      - name: Build distributable
+        shell: bash
+        env:
+          # Step-level wins over the job-level value, so this is the normalised one.
+          BOOMIO_BASE_URL: ${{ steps.media.outputs.url }}
+        run: |
+          set -euo pipefail
+          # ⚠️ `generateRuntimeConfigs` declares `local.properties` as a required input file, and
+          # it is gitignored -- upstream's release workflow materialises it from a repository
+          # secret via configure-desktop-runtime.sh, which also refuses to run without Sentry and
+          # signing values we do not have. An empty file is enough: every setting it would carry
+          # arrives through the environment, and `runtimeConfigValue` reads local.properties first
+          # and the environment second. Without the file Gradle fails input validation before
+          # compiling.
+          : > local.properties
+          ./gradlew \
+            :composeApp:createReleaseDistributable \
+            -Pcompose.desktop.packaging.checkJdkVendor=false \
+            --no-configuration-cache \
+            --no-daemon \
+            --stacktrace
+
+      - name: Verify the app image
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_root="${GITHUB_WORKSPACE}/composeApp/build/compose/binaries/main-release/app/Nuvio"
+          if [[ ! -d "${app_root}" ]]; then
+            echo "Expected the Linux app bundle at ${app_root} after createReleaseDistributable." >&2
+            find composeApp/build/compose -maxdepth 6 2>/dev/null | head -n 200 >&2
+            exit 1
+          fi
+          executable_path="${app_root}/bin/Nuvio"
+          if [[ ! -x "${executable_path}" ]]; then
+            executable_path="${app_root}/bin/nuvio"
+          fi
+          if [[ ! -x "${executable_path}" ]]; then
+            echo "Expected a Linux app executable under ${app_root}/bin." >&2
+            find "${app_root}" -maxdepth 3 2>/dev/null | head -n 200 >&2
+            exit 1
+          fi
+          # ⚠️ The tunnel library ships *inside the jar*, under `native/linux`, which is the
+          # classpath fallback OverlayWgLibrary extracts on first use -- not a loose file beside
+          # the app. Check the archive, as the Windows workflow learned to. A jar on Linux is a
+          # zip; python3 is on every runner and `unzip` is not guaranteed.
+          python3 - "${app_root}" <<'PY'
+          import pathlib, sys, zipfile
+          root = pathlib.Path(sys.argv[1])
+          jars = list(root.rglob("*.jar"))
+          for jar in jars:
+              try:
+                  with zipfile.ZipFile(jar) as archive:
+                      if "native/linux/liboverlaywg.so" in archive.namelist():
+                          print(f"native/linux/liboverlaywg.so is in {jar.relative_to(root)}")
+                          break
+              except zipfile.BadZipFile:
+                  continue
+          else:
+              raise SystemExit(
+                  "native/linux/liboverlaywg.so is not in any jar in the app image - "
+                  "the jar did not pick up overlaywg/build/linux-amd64."
+              )
+          PY
+          echo "app image verified at ${app_root}"
+
+      - name: Install Flatpak toolchain
+        if: inputs.package_as == 'flatpak'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder desktop-file-utils
+
+          # ⚠️ 24.04 restricts unprivileged user namespaces through AppArmor, and `flatpak-builder`
+          # needs them for `bwrap`. Left on, it dies with "Can't create a new namespace" long
+          # before it reaches the manifest.
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y --system flathub org.gnome.Platform//50 org.gnome.Sdk//50
+          # Hardware decode, best-effort: the manifest declares these as extensions, and a box
+          # without the GPU simply never enables them.
+          sudo flatpak install -y --system flathub org.freedesktop.Platform.VAAPI.Intel//25.08 || true
+          sudo flatpak install -y --system flathub org.freedesktop.Platform.VAAPI.Nvidia//25.08 || true
+
+      - name: Build Flatpak bundle
+        if: inputs.package_as == 'flatpak'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_root="${GITHUB_WORKSPACE}/composeApp/build/compose/binaries/main-release/app/Nuvio"
+          stamp="$(git rev-parse --short=7 HEAD)"
+
+          # The manifest is assembled, not committed: three files are copied in beside it, and its
+          # one local source is the absolute app-image path.
+          mkdir -p flatpak
+          cp ./scripts/linux/nuvio-launcher.sh flatpak/nuvio-launcher.sh
+          cp ./scripts/linux/linux-shortcut-definition.sh flatpak/linux-shortcut-definition.sh
+          cp ./scripts/linux/com.nuvio.media.desktop.metainfo.xml flatpak/com.nuvio.media.desktop.metainfo.xml
+          chmod +x flatpak/nuvio-launcher.sh
+          sed -i "s|date=\"1970-01-01\"|date=\"$(date -u +%F)\"|" flatpak/com.nuvio.media.desktop.metainfo.xml
+          cp ./scripts/linux/nuvio-flatpak.yml flatpak/nuvio-flatpak.yml
+          sed -i "s|\${app_root}|${app_root}|g" flatpak/nuvio-flatpak.yml
+
+          flatpak-builder --repo=flatpak-repo --force-clean flatpak-build flatpak/nuvio-flatpak.yml
+          flatpak build-bundle flatpak-repo "boomio-linux-x86_64-${stamp}.flatpak" com.nuvio.media.desktop
+
+          # The bundle is only worth uploading if it parses as an OSTree ref. Importing it into a
+          # throwaway repo is the cheapest check that does not need a desktop.
+          mkdir -p verify-repo
+          flatpak build-import-bundle verify-repo "boomio-linux-x86_64-${stamp}.flatpak"
+          test -x flatpak-build/files/app/bin/nuvio
+
+          ls -lh "boomio-linux-x86_64-${stamp}.flatpak"
+          echo "BUNDLE=boomio-linux-x86_64-${stamp}.flatpak" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=boomio-linux-x64-${stamp}-flatpak" >> "$GITHUB_ENV"
+
+      - name: Collect the loose app image
+        if: inputs.package_as == 'bundle'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_root="${GITHUB_WORKSPACE}/composeApp/build/compose/binaries/main-release/app/Nuvio"
+          stamp="$(git rev-parse --short=7 HEAD)"
+          bundle="${RUNNER_TEMP}/boomio-linux-x86_64-${stamp}.tar.gz"
+          tar -C "$(dirname "${app_root}")" -czf "${bundle}" Nuvio
+          ls -lh "${bundle}"
+          echo "BUNDLE=${bundle}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=boomio-linux-x64-${stamp}-bundle" >> "$GITHUB_ENV"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.BUNDLE }}
+          if-no-files-found: error
+          retention-days: 14
