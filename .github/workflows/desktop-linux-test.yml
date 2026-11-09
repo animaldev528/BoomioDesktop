@@ -317,10 +317,10 @@ jobs:
           sudo flatpak info com.nuvio.media.desktop | head -n 6
           # Check the deployed tree on the host rather than running the app: `flatpak run` refuses
           # to run under `sudo`, and a GUI launch is not what this is asking. The deploy directory
-          # is the bundle's filesystem, so `/app` from the sandbox is `files/app` here.
-          launcher="$(sudo find /var/lib/flatpak/app/com.nuvio.media.desktop -path '*/files/app/bin/nuvio' -type f 2>/dev/null | head -n 1)"
+          # is the bundle's filesystem, so `/app` from the sandbox is `files` here -- not `files/app`.
+          launcher="$(sudo find /var/lib/flatpak/app/com.nuvio.media.desktop -path '*/files/bin/nuvio' -type f 2>/dev/null | head -n 1)"
           if [[ -z "${launcher}" ]]; then
-            echo "No launcher at */files/app/bin/nuvio; the deployed tree is:" >&2
+            echo "No launcher at */files/bin/nuvio; the deployed tree is:" >&2
             sudo find /var/lib/flatpak/app/com.nuvio.media.desktop -maxdepth 6 >&2 2>/dev/null | head -n 40
             exit 1
           fi
